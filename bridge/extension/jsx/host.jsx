@@ -4,10 +4,10 @@
 var tomoMask = tomoMask || {};
 (function(){
 var TAG="TomoTrackAI - OBJETIVO", state={run:"",lastFrame:-1};
-var BUILD_ID="mask-0.3.2-bridge-20261012";
+var BUILD_ID="mask-0.4.0-bridge-20261012";
 function json(v){return JSON.stringify(v);}
 function fail(e){return json({ok:false,error:String(e.message||e),bridge_id:BUILD_ID});}
-tomoMask.version=function(){return json({ok:true,version:"0.3.2",bridge_id:BUILD_ID});};
+tomoMask.version=function(){return json({ok:true,version:"0.4.0",bridge_id:BUILD_ID});};
 function comp(){var x=app.project&&app.project.activeItem;if(!(x instanceof CompItem))throw Error("Abrí una composición de After Effects.");return x;}
 function layer(){
  var c=comp(),s=c.selectedLayers;
@@ -72,14 +72,19 @@ function timeOf(d,s){return Number(d.layer_start)+Number(s.source_time);}
 function moved(anchor,s){
  var src=anchor.shape,base=anchor.bbox;
  var sh=new Shape(),cX=Number(s.cx)*(Number(s.source_scale_x)||1),cY=Number(s.cy)*(Number(s.source_scale_y)||1);
+ var radians=s.rotate ? (Number(s.rotation_deg||0)-Number(anchor.rotation_deg||0))*Math.PI/180 : 0;
+ var co=Math.cos(radians),si=Math.sin(radians);
+ function turn(x,y){return [x*co-y*si,x*si+y*co];}
  var baseCX=base.x+base.w/2,baseCY=base.y+base.h/2;
- var scaleX=s.bbox[2]*(Number(s.source_scale_x)||1)/base.w;
- var scaleY=s.bbox[3]*(Number(s.source_scale_y)||1)/base.h;
+ var scaleX=s.scale ? s.bbox[2]*(Number(s.source_scale_x)||1)/base.w : 1;
+ var scaleY=s.scale ? s.bbox[3]*(Number(s.source_scale_y)||1)/base.h : 1;
  var verts=[],ins=[],outs=[];
  for(var i=0;i<src.vertices.length;i++){
     var v=src.vertices[i],iv=src.inTangents[i],ov=src.outTangents[i];
-    verts.push([cX+(v[0]-baseCX)*scaleX,cY+(v[1]-baseCY)*scaleY]);
-    ins.push([iv[0]*scaleX,iv[1]*scaleY]);outs.push([ov[0]*scaleX,ov[1]*scaleY]);
+    var v2=turn((v[0]-baseCX)*scaleX,(v[1]-baseCY)*scaleY);
+    verts.push([cX+v2[0],cY+v2[1]]);
+    ins.push(turn(iv[0]*scaleX,iv[1]*scaleY));
+    outs.push(turn(ov[0]*scaleX,ov[1]*scaleY));
  }
  sh.vertices=verts;sh.inTangents=ins;sh.outTangents=outs;sh.closed=true;
  return sh;
@@ -126,12 +131,14 @@ tomoMask.applyProgress=function(path){var undo=false;try{
     // Por eso los lotes de 2+ fotogramas generaban un falso error de secuencia.
     if(sample.frame<=state.lastFrame)continue;
     if(state.lastFrame>=0&&sample.frame>state.lastFrame+1)
-       throw Error("v0.3.2: Faltan cuadros entre "+state.lastFrame+" y "+sample.frame+".");
+       throw Error("v0.4: Faltan cuadros entre "+state.lastFrame+" y "+sample.frame+".");
     var t=timeOf(d,sample);
     if(t<0||t>=z.c.duration||t<z.l.inPoint-0.0001||t>z.l.outPoint+0.0001)continue;
     var anchor=anchorFor(d,sample.frame);
     var scaled={cx:sample.cx,cy:sample.cy,bbox:sample.bbox,
-                source_scale_x:ratioX,source_scale_y:ratioY};
+                source_scale_x:ratioX,source_scale_y:ratioY,
+                rotation_deg:sample.rotation_deg||0,
+                scale: d.track_scale!==false, rotate:d.track_rotation!==false};
     p.setValueAtTime(t,moved(anchor,scaled));
     state.lastFrame=sample.frame;
     applied++;lastT=t;
@@ -140,7 +147,7 @@ tomoMask.applyProgress=function(path){var undo=false;try{
    // Provoca refresco del visor de AE después de cada bloque pequeño.
    z.c.time=lastT;z.l.selected=true;p.selected=true;
  }
- return json({ok:true,applied:applied,total:d.samples.length,last_time:lastT});
+ return json({ok:true,applied:applied,total:d.samples.length,last_time:lastT,last_frame:state.lastFrame});
 }catch(e){return fail(e);}finally{if(undo)app.endUndoGroup();}};
 tomoMask.correction=function(){try{
  var a=inspect(),z=a.z,m=a.m;
@@ -155,15 +162,30 @@ tomoMask.rewind=function(path){var undo=false;try{
  state.lastFrame=frame-1;
  return json({ok:true,frame:frame});
 }catch(e){return fail(e);}finally{if(undo)app.endUndoGroup();}};
+// La solicitud de refresco no garantiza que el renderer asíncrono de AE
+// haya dibujado el frame; el panel deja respirar al visor entre lotes.
+tomoMask.previewInfo=function(){try{
+ var z=layer();
+ return json({ok:true,viewer_requested_time:z.c.time,viewer_requested_frame:Math.round(z.c.time/z.c.frameDuration)});
+}catch(e){return fail(e);}};
 tomoMask.makeNull=function(path){var undo=false;try{
  var d=load(path),r=locate(d),z=r.z,l=z.l,c=z.c;
  if(d.samples.length<2)throw Error("Seguí al menos dos fotogramas.");
  var rx=d.source_width/d.width,ry=d.source_height/d.height;
- var times=[],values=[],prev=-1;
+ var times=[],values=[],sxs=[],sys=[],angles=[],prev=-1;
+ var base=(d.anchors&&d.anchors.length)?d.anchors[0].bbox:null;
+ if(!base||!base.w||!base.h)throw Error("Falta la máscara base para calcular Scale.");
  for(var i=0;i<d.samples.length;i++){
  var s=d.samples[i],t=timeOf(d,s);
  if(t>=0&&t<=c.duration&&t>prev+0.0000001){
- times.push(t);values.push([s.cx*rx,s.cy*ry]);prev=t;
+ times.push(t);values.push([s.cx*rx,s.cy*ry]);
+ sxs.push((d.track_scale!==false)?100*s.bbox[2]*rx/base.w:100);
+ sys.push((d.track_scale!==false)?100*s.bbox[3]*ry/base.h:100);
+ // La rotación observada es local; incluimos la rotación propia de la capa fuente.
+ var layerAngle=0;
+ try{layerAngle=z.l.property("ADBE Transform Group").property("ADBE Rotate Z").valueAtTime(t,false);}catch(ignore){}
+ angles.push((d.track_rotation!==false?Number(s.rotation_deg||0):0)+Number(layerAngle||0));
+ prev=t;
  }
  }
  if(times.length<2)throw Error("No hay suficientes muestras válidas.");
@@ -177,10 +199,19 @@ tomoMask.makeNull=function(path){var undo=false;try{
  var v=p.valueAtTime(times[k],false);converted.push([v[0],v[1]]);
  }
  p.expression="";p.setValuesAtTimes(times,converted);
- nullL.property("ADBE Transform Group").property("ADBE Scale").setValue([100,100]);
+ // El Null conserva Position, Scale y Rotation independientes en AE.
+ var transforms=nullL.property("ADBE Transform Group");
+ var scale=transforms.property("ADBE Scale"),angle=transforms.property("ADBE Rotate Z");
+ if(d.track_scale!==false){
+    var scales=[];
+    for(var si=0;si<sxs.length;si++)scales.push([sxs[si],sys[si]]);
+    scale.setValuesAtTimes(times,scales);
+ } else scale.setValue([100,100]);
+ if(d.track_rotation!==false)angle.setValuesAtTimes(times,angles);
+ else angle.setValue(0);
  nullL.inPoint=Math.max(0,times[0]);
  nullL.outPoint=Math.min(c.duration,times[times.length-1]+1/d.fps);
  nullL.selected=true;
- return json({ok:true,keyframes:times.length,name:nullL.name});
+ return json({ok:true,keyframes:times.length,name:nullL.name,scale:d.track_scale!==false,rotation:d.track_rotation!==false});
 }catch(e){return fail(e);}finally{if(undo)app.endUndoGroup();}};
 })();
