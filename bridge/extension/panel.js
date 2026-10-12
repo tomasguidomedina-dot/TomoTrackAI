@@ -150,7 +150,9 @@ async function startSession(){
  job.confidence_threshold=0.24;
  job.track_scale=el("scaleTrack").checked;
  job.track_rotation=el("rotationTrack").checked;
- var r=await rpc({cmd:"init",job:job});
+ var r;
+ try { r=await rpc({cmd:"init",job:job}); }
+ catch(e){job=null;hasData=false;controls();throw e;}
  job.fps=r.fps;
  hasData=true;
  await snapshot();
