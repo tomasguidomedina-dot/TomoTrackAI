@@ -124,7 +124,7 @@ footer{display:flex;align-items:center;justify-content:space-between;gap:8px;pad
   <header>
     <div class="brand">
       <div class="wordmark">TomoTrack<span class="ai">AI</span></div>
-      <div class="subbrand">PlateTrack Engine <span aria-hidden="true">·</span> v0.6 · ESTABILIZACIÓN</div>
+      <div class="subbrand">PlateTrack Engine <span aria-hidden="true">·</span> v0.6.2 · PINS</div>
     </div>
     <div id="engineBadge" class="engine" data-state="loading" title="Estado del motor local">
       <i aria-hidden="true"></i><span id="engineState">Iniciando</span>
@@ -141,7 +141,7 @@ footer{display:flex;align-items:center;justify-content:space-between;gap:8px;pad
       <option value="object" selected>Seguimiento de objeto</option>
       <option value="stabilize">Estabilización de cámara</option>
     </select>
-    <p id="modeHint" class="helper" style="margin:9px 0">Dibujá una máscara cerrada sobre el objeto a seguir.</p>
+    <p id="modeHint" class="helper" style="margin:9px 0">Dibujá cuatro esquinas correspondientes a una región fija y texturada del fondo.</p>
     <div class="source">
       <span class="source-label">Capa</span><span class="source-value placeholder" id="sourceLayer">Seleccioná un video y dibujá una máscara cerrada (G).</span>
       <span class="source-label">Comp.</span><span class="source-value" id="sourceComp">—</span>
@@ -191,7 +191,7 @@ footer{display:flex;align-items:center;justify-content:space-between;gap:8px;pad
         </select>
       </div>
       <label class="stab-check"><input type="checkbox" id="stabCrop" checked/> Recorte / zoom automático</label>
-      <p class="helper">Analizá una región del <strong>fondo estático</strong>, no un sujeto en movimiento. La capa original quedará conservada y desactivada.</p>
+      <p class="helper">Marcá <strong>exactamente 4 esquinas</strong> (mismo orden en cada corrección) de una zona fija y texturada del fondo. Si PlateTrack se detiene, ajustá esos mismos vértices y tocá <strong>Fijar 4 puntos del fondo</strong>. Los cuadros recuperados por interpolación requieren revisión visual.</p>
     </div>
     <button id="stabilize" style="width:100%" disabled hidden>◇ Crear capa estabilizada</button>
     <button id="new" class="subtle">↺ Nueva sesión</button>
