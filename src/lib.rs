@@ -1,6 +1,6 @@
-//! Bootstrap de efecto nativo AE.
-//! Prueba de carga/render: muestra un recuadro verde ajustable.
-//! NO implementa todavía seguimiento automático de objetos.
+//! TomoTrack Native Check 0.0.3 — verificacion VISUAL del Render callback.
+//! No contiene todavia un tracker: esta version debe mostrar
+//! un tinte verde, un marco exterior y un recuadro central.
 
 use after_effects as ae;
 
@@ -39,10 +39,11 @@ impl AdobePluginGlobal for Plugin {
                 f.set_precision(1);
             }))?;
         }
-        params.add(Params::ShowBox, "Mostrar cuadro", ae::CheckBoxDef::setup(|f| {
+
+        params.add(Params::ShowBox, "Mostrar diagnostico", ae::CheckBoxDef::setup(|f| {
             f.set_default(true);
             f.set_value(true);
-            f.set_label("Mostrar marcador de diagnostico");
+            f.set_label("Ver marco y tinte verde");
         }))?;
         Ok(())
     }
@@ -50,66 +51,94 @@ impl AdobePluginGlobal for Plugin {
     fn handle_command(
         &mut self,
         command: ae::Command,
-        in_data: ae::InData,
+        _in_data: ae::InData,
         mut out_data: ae::OutData,
         params: &mut ae::Parameters<Params>,
     ) -> Result<(), ae::Error> {
         match command {
             ae::Command::About => {
-                out_data.set_return_msg("TomoTrackAI 2.0 - Native Check 0.0.1\rPrueba de integracion nativa con AE; sin tracking automatico.");
+                out_data.set_return_msg(
+                    "TomoTrackAI - Native Check v0.0.3\rPrueba visual del render; todavia sin seguimiento automatico."
+                );
             }
             ae::Command::Render { in_layer, mut out_layer } => {
-                if !params.get(Params::ShowBox)?.as_checkbox()?.value() {
-                    out_layer.copy_from(&in_layer, None, None)?;
+                // Siempre copiar el fotograma original: no modificar el origen.
+                out_layer.copy_from(&in_layer, None, None)?;
+
+                // Marco y tinte SIEMPRE activos: validan el Render callback incluso
+                // si AE recupero un valor antiguo del checkbox del proyecto.
+                let show_square = params.get(Params::ShowBox)?.as_checkbox()?.value();
+
+                // Usar la dimension REAL del buffer de salida, no la composicion.
+                let width = out_layer.width() as i32;
+                let height = out_layer.height() as i32;
+                if width <= 0 || height <= 0 {
                     return Ok(());
                 }
 
-                let x_pct = params.get(Params::CenterX)?.as_float_slider()?.value() as f32 / 100.0;
-                let y_pct = params.get(Params::CenterY)?.as_float_slider()?.value() as f32 / 100.0;
-                let side = params.get(Params::BoxSize)?.as_float_slider()?.value() as i32;
-                let cx = (in_data.width() as f32 * x_pct).round() as i32;
-                let cy = (in_data.height() as f32 * y_pct).round() as i32;
-                let radius = (side / 2).max(0);
-                let left = cx - radius;
-                let right = cx + radius;
-                let top = cy - radius;
-                let bottom = cy + radius;
+                let x_pct = (params.get(Params::CenterX)?.as_float_slider()?.value()
+                    as f32 / 100.0).clamp(0.0, 1.0);
+                let y_pct = (params.get(Params::CenterY)?.as_float_slider()?.value()
+                    as f32 / 100.0).clamp(0.0, 1.0);
+                let side = (params.get(Params::BoxSize)?.as_float_slider()?.value()
+                    as i32).max(12);
+                let cx = ((width - 1) as f32 * x_pct).round() as i32;
+                let cy = ((height - 1) as f32 * y_pct).round() as i32;
+                let half = side / 2;
+                let left = cx - half;
+                let right = cx + half;
+                let top = cy - half;
+                let bottom = cy + half;
+                let thickness = 5;
 
-                in_layer.iterate_with(
-                    &mut out_layer,
-                    0,
-                    in_data.height(),
-                    None,
-                    |x: i32, y: i32, inp: ae::GenericPixel, out: ae::GenericPixelMut| -> Result<(), ae::Error> {
-                        let border = side > 0
-                            && ((((x - left).abs() <= 1 || (x - right).abs() <= 1) && y >= top && y <= bottom)
-                                || (((y - top).abs() <= 1 || (y - bottom).abs() <= 1) && x >= left && x <= right));
-                        let center = (x - cx).abs() <= 2 && (y - cy).abs() <= 2;
-                        let mark = border || center;
-                        match (inp, out) {
-                            (ae::GenericPixel::Pixel8(src), ae::GenericPixelMut::Pixel8(dst)) => {
-                                dst.alpha = src.alpha;
-                                dst.red = if mark { 0 } else { src.red };
-                                dst.green = if mark { 255 } else { src.green };
-                                dst.blue = if mark { 80 } else { src.blue };
+                // Modificar el buffer de salida en el callback de render:
+                // - leve tinte verde en toda la capa (prueba inequivoca de render)
+                // - marco verde exterior, cuadro verde y cruz central.
+                out_layer.iterate(0, height, None, move |x, y, px| {
+                    let outer = x < thickness || y < thickness
+                        || x >= width - thickness || y >= height - thickness;
+                    let square = ((x - left).abs() <= thickness
+                            || (x - right).abs() <= thickness)
+                            && y >= top && y <= bottom
+                        || ((y - top).abs() <= thickness
+                            || (y - bottom).abs() <= thickness)
+                            && x >= left && x <= right;
+                    let cross = ((x - cx).abs() <= 12 && (y - cy).abs() <= 2)
+                            || ((x - cx).abs() <= 2 && (y - cy).abs() <= 12);
+                    let marked = outer || (show_square && (square || cross));
+
+                    match px {
+                        ae::GenericPixelMut::Pixel8(p) => {
+                            if marked {
+                                p.red = 0;
+                                p.green = 255;
+                                p.blue = 40;
+                            } else {
+                                p.green = p.green.saturating_add(45);
                             }
-                            (ae::GenericPixel::Pixel16(src), ae::GenericPixelMut::Pixel16(dst)) => {
-                                dst.alpha = src.alpha;
-                                dst.red = if mark { 0 } else { src.red };
-                                dst.green = if mark { ae::MAX_CHANNEL16 as _ } else { src.green };
-                                dst.blue = if mark { (ae::MAX_CHANNEL16 / 3) as _ } else { src.blue };
-                            }
-                            (ae::GenericPixel::PixelF32(src), ae::GenericPixelMut::PixelF32(dst)) => {
-                                dst.alpha = src.alpha;
-                                dst.red = if mark { 0.0 } else { src.red };
-                                dst.green = if mark { 1.0 } else { src.green };
-                                dst.blue = if mark { 0.32 } else { src.blue };
-                            }
-                            _ => return Err(ae::Error::BadCallbackParameter),
                         }
-                        Ok(())
+                        ae::GenericPixelMut::Pixel16(p) => {
+                            if marked {
+                                p.red = 0;
+                                p.green = ae::MAX_CHANNEL16 as _;
+                                p.blue = (ae::MAX_CHANNEL16 / 6) as _;
+                            } else {
+                                p.green = p.green.saturating_add((ae::MAX_CHANNEL16 / 6) as _);
+                            }
+                        }
+                        ae::GenericPixelMut::PixelF32(p) => {
+                            if marked {
+                                p.red = 0.0;
+                                p.green = 1.0;
+                                p.blue = 0.15;
+                            } else {
+                                p.green += 0.17;
+                            }
+                        }
+                        _ => return Err(ae::Error::BadCallbackParameter),
                     }
-                )?;
+                    Ok(())
+                })?;
             }
             _ => {}
         }
