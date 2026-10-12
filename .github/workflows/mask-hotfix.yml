@@ -1,0 +1,67 @@
+name: TomoTrackAI v0.3.2 Parche offline
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pruebas puente e identidad
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check bridge/extension/panel.js
+          node --check --input-type=commonjs < bridge/extension/jsx/host.jsx
+          node tests/mask-sequence.test.js
+          bash -n hotfix/Instalar_parche_TomoTrackAI_v0.3.2.command
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          manifest=ET.parse('bridge/extension/CSXS/manifest.xml')
+          assert manifest.getroot().attrib['ExtensionBundleId']=='com.tomo.trackai32'
+          panel=Path('bridge/extension/panel.js').read_text()
+          jsx=Path('bridge/extension/jsx/host.jsx').read_text()
+          assert 'mask-0.3.2-bridge-20261012' in panel
+          assert 'mask-0.3.2-bridge-20261012' in jsx
+          assert 'Secuencia de tracking incompleta' not in jsx
+          assert 'Faltan cuadros entre' in jsx
+          assert 'verifyBridge()' in panel
+          assert 'id="bridgeVersion"' in Path('bridge/extension/index.html').read_text()
+          print('PASS: paquete único CEP y handshake de versión')
+          PY
+      - name: Crear parche pequeño SIN motor
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET=dist/TomoTrackAI_v0.3.2_Parche_Offline
+          mkdir -p "$TARGET"
+          cp -R bridge/extension "$TARGET/extension"
+          cp hotfix/Instalar_parche_TomoTrackAI_v0.3.2.command "$TARGET/"
+          chmod +x "$TARGET/"*.command
+          printf '%s\n' \
+            'TomoTrackAI v0.3.2 - PARCHE OFFLINE (Mac Intel / AE2024)' \
+            '1. Requiere que TomoTrackAI v0.3 o v0.3.1 ya este instalado.' \
+            '2. Cerrar AE con Cmd+Q. Ejecutar Instalar_parche_TomoTrackAI_v0.3.2.command.' \
+            '3. El instalador solo reemplaza el panel CEP. Respaldos en Application Support/TomoTrackAI3/respaldos.' \
+            '4. Reabrir AE > Ventana > Extensiones heredadas > TomoTrackAI.' \
+            '5. Confirmar texto: Puente AE: v0.3.2 verificado.' \
+            '6. Nada se descarga de Internet; NanoTrack y modelos quedan sin cambios.' \
+            '7. Si aun falla, indicar que dice Puente AE y Motor local (segundos).' \
+            > "$TARGET/LEEME.txt"
+          (cd dist && zip -qr TomoTrackAI_v0.3.2_Parche_Offline.zip TomoTrackAI_v0.3.2_Parche_Offline)
+          test $(stat -c%s dist/TomoTrackAI_v0.3.2_Parche_Offline.zip) -lt 250000
+      - name: Publicar parche offline
+        uses: actions/upload-artifact@v4
+        with:
+          name: TomoTrackAI_v0.3.2_Parche_Offline
+          path: dist/TomoTrackAI_v0.3.2_Parche_Offline.zip
+          retention-days: 30
+          if-no-files-found: error
