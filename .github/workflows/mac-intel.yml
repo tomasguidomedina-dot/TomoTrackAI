@@ -33,12 +33,12 @@ jobs:
         run: |
           set -euo pipefail
           PROFILE="target/x86_64-apple-darwin/release"
-          DEST="dist/TomoTrack_Native_Check.plugin"
+          DEST="dist/TomoTrack_ROI_Select.plugin"
           mkdir -p "$DEST/Contents/MacOS" "$DEST/Contents/Resources"
           test -s "$PROFILE/libtomotrack_native.dylib"
           test -s "$PROFILE/tomotrack_native.rsrc"
-          cp "$PROFILE/libtomotrack_native.dylib" "$DEST/Contents/MacOS/TomoTrack_Native_Check"
-          cp "$PROFILE/tomotrack_native.rsrc" "$DEST/Contents/Resources/TomoTrack_Native_Check.rsrc"
+          cp "$PROFILE/libtomotrack_native.dylib" "$DEST/Contents/MacOS/TomoTrack_ROI_Select"
+          cp "$PROFILE/tomotrack_native.rsrc" "$DEST/Contents/Resources/TomoTrack_ROI_Select.rsrc"
           # pipl 0.1.1 (crates.io) publishes .rsrc but not these two metadata files.
           printf 'eFKTFXTC' > "$DEST/Contents/PkgInfo"
           cat > "$DEST/Contents/Info.plist" <<'PLIST'
@@ -46,34 +46,34 @@ jobs:
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
-            <key>CFBundleExecutable</key><string>TomoTrack_Native_Check</string>
-            <key>CFBundleIdentifier</key><string>com.tomomedina.TomoTrackNativeCheck</string>
-            <key>CFBundleName</key><string>TomoTrack Native Check</string>
+            <key>CFBundleExecutable</key><string>TomoTrack_ROI_Select</string>
+            <key>CFBundleIdentifier</key><string>com.tomomedina.TomoTrackROISelect</string>
+            <key>CFBundleName</key><string>TomoTrack ROI Select</string>
             <key>CFBundlePackageType</key><string>eFKT</string>
             <key>CFBundleSignature</key><string>FXTC</string>
             <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
-            <key>CFBundleVersion</key><string>0.0.3</string>
-            <key>CFBundleShortVersionString</key><string>0.0.3</string>
+            <key>CFBundleVersion</key><string>0.1.0</string>
+            <key>CFBundleShortVersionString</key><string>0.1.0</string>
             <key>LSMinimumSystemVersion</key><string>12.0</string>
           </dict>
           </plist>
           PLIST
           plutil -lint "$DEST/Contents/Info.plist"
-          file "$DEST/Contents/MacOS/TomoTrack_Native_Check"
-          lipo "$DEST/Contents/MacOS/TomoTrack_Native_Check" -verify_arch x86_64
+          file "$DEST/Contents/MacOS/TomoTrack_ROI_Select"
+          lipo "$DEST/Contents/MacOS/TomoTrack_ROI_Select" -verify_arch x86_64
           codesign --force --deep --sign - "$DEST"
           codesign --verify --verbose=2 "$DEST"
-          cp scripts/Install_TomoTrack.command dist/
-          cp scripts/Uninstall_TomoTrack.command dist/
+          cp scripts/Install_TomoTrackROI.command dist/
+          cp scripts/Uninstall_TomoTrackROI.command dist/
           chmod +x dist/*.command
           cd dist
-          ditto -c -k --sequesterRsrc --keepParent TomoTrack_Native_Check.plugin Native_Check_Plugin_Only.zip
-          zip -q -r TomoTrack_Native_Check_v0.0.3_Mac_Intel.zip TomoTrack_Native_Check.plugin Install_TomoTrack.command Uninstall_TomoTrack.command
+          ditto -c -k --sequesterRsrc --keepParent TomoTrack_ROI_Select.plugin ROI_Select_Plugin_Only.zip
+          zip -q -r TomoTrack_ROI_Select_v0.1.0_Mac_Intel.zip TomoTrack_ROI_Select.plugin Install_TomoTrackROI.command Uninstall_TomoTrackROI.command
 
       - name: Upload verified bundle as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TomoTrack_Native_Check_v0.0.3_Mac_Intel
-          path: dist/TomoTrack_Native_Check_v0.0.3_Mac_Intel.zip
+          name: TomoTrack_ROI_Select_v0.1.0_Mac_Intel
+          path: dist/TomoTrack_ROI_Select_v0.1.0_Mac_Intel.zip
           if-no-files-found: error
           retention-days: 30
