@@ -65,9 +65,9 @@ impl AdobePluginGlobal for Plugin {
                 // Siempre copiar el fotograma original: no modificar el origen.
                 out_layer.copy_from(&in_layer, None, None)?;
 
-                if !params.get(Params::ShowBox)?.as_checkbox()?.value() {
-                    return Ok(());
-                }
+                // Marco y tinte SIEMPRE activos: validan el Render callback incluso
+                // si AE recupero un valor antiguo del checkbox del proyecto.
+                let show_square = params.get(Params::ShowBox)?.as_checkbox()?.value();
 
                 // Usar la dimension REAL del buffer de salida, no la composicion.
                 let width = out_layer.width() as i32;
@@ -105,7 +105,7 @@ impl AdobePluginGlobal for Plugin {
                             && x >= left && x <= right;
                     let cross = ((x - cx).abs() <= 12 && (y - cy).abs() <= 2)
                             || ((x - cx).abs() <= 2 && (y - cy).abs() <= 12);
-                    let marked = outer || square || cross;
+                    let marked = outer || (show_square && (square || cross));
 
                     match px {
                         ae::GenericPixelMut::Pixel8(p) => {
