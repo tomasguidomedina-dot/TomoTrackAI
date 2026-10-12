@@ -72,7 +72,7 @@ const sandbox={
 vm.createContext(sandbox);
 vm.runInContext(fs.readFileSync("bridge/extension/jsx/host.jsx","utf8"),sandbox);
 const version=JSON.parse(sandbox.tomoMask.version());
-assert.strictEqual(version.bridge_id,"platetrack-0.6.0-bridge-20261012");
+assert.strictEqual(version.bridge_id,"platetrack-0.6.2-bridge-20261012");
 let result=JSON.parse(sandbox.tomoMask.applyStabilization("/virtual.json"));
 assert(result.ok,result.error);
 assert.strictEqual(result.keyframes,25);
