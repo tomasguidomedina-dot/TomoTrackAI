@@ -1,4 +1,4 @@
-name: TomoTrackAI v0.2 — NanoTrack Mac Intel
+name: TomoTrackAI v0.2.1 — Interfaz unificada Intel
 
 on:
   pull_request:
@@ -22,6 +22,27 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-apple-darwin
+
+      - name: Validar sintaxis y panel unificado
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check bridge/extension/panel.js
+          node --check --input-type=commonjs < bridge/extension/jsx/host.jsx
+          bash -n scripts/Instalar_TomoTrackAI_02.command scripts/Desinstalar_TomoTrackAI_02.command
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          ET.parse("bridge/extension/CSXS/manifest.xml")
+          panel = Path("bridge/extension/panel.js").read_text()
+          host = Path("bridge/extension/jsx/host.jsx").read_text()
+          html = Path("bridge/extension/index.html").read_text()
+          assert 'await launch()' in panel
+          assert 'tomoBridge.prepare=function()' in host
+          assert 'parade.addProperty(MATCH)' in host
+          for element in ("prepare", "roiW", "roiH", "roiShow", "region", "start", "null", "connect"):
+              assert 'id="' + element + '"' in html, element
+          PY
 
       - name: Python 3.11 Intel
         uses: actions/setup-python@v5
@@ -64,7 +85,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ROOT=package/TomoTrackAI_v0.2_Mac_Intel
+          ROOT=package/TomoTrackAI_v0.2.1_Mac_Intel
           PLUGIN="$ROOT/TomoTrack_ROI_Select.plugin"
           PROFILE=target/x86_64-apple-darwin/release
           mkdir -p "$PLUGIN/Contents/MacOS" "$PLUGIN/Contents/Resources"
@@ -96,12 +117,12 @@ jobs:
           cp scripts/Desinstalar_TomoTrackAI_02.command "$ROOT/"
           chmod +x "$ROOT/"*.command
           cp TRACKING_STATUS.md "$ROOT/LEEME.md"
-          (cd package && ditto -c -k --sequesterRsrc --keepParent TomoTrackAI_v0.2_Mac_Intel TomoTrackAI_v0.2_Mac_Intel.zip)
+          (cd package && ditto -c -k --sequesterRsrc --keepParent TomoTrackAI_v0.2.1_Mac_Intel TomoTrackAI_v0.2.1_Mac_Intel.zip)
 
       - name: Publicar instalador Intel
         uses: actions/upload-artifact@v4
         with:
-          name: TomoTrackAI_v0.2_Mac_Intel
-          path: package/TomoTrackAI_v0.2_Mac_Intel.zip
+          name: TomoTrackAI_v0.2.1_Mac_Intel
+          path: package/TomoTrackAI_v0.2.1_Mac_Intel.zip
           if-no-files-found: error
           retention-days: 30
