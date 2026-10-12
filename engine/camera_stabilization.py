@@ -58,7 +58,7 @@ def _valid_on_canvas(C,w,h,z=1.,margin=1.5):
     pts=np.array([[0,0],[w-1,0],[w-1,h-1],[0,h-1]],dtype=np.float64)
     for p in pts:
         x,y=point(back,p)
-        if not(margin<=x<=w-1-margin and margin<=y<=h-1-margin):
+        if not(margin-1e-6<=x<=w-1-margin+1e-6 and margin-1e-6<=y<=h-1-margin+1e-6):
             return False
     return True
 
