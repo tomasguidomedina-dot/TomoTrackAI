@@ -8,7 +8,32 @@ var fs,os,path,spawn,readline,proc=null,ready=false,starting=null,queue=[],job=n
 var resultFile="",busy=false,stopping=false,hasData=false,bootStart=0,clock=null;
 var lastScore=1;
 var EXPECTED_BRIDGE="platetrack-0.5.0-bridge-20261012",bridgeVerified=false;
-function status(s){el("status").textContent=String(s);}
+// Sólo interfaz. No afecta el motor, sus parámetros ni sus keyframes.
+function badge(state,label){
+ var node=el("engineBadge");node.setAttribute("data-state",state);
+ el("engineState").textContent=label;
+}
+function status(s){
+ var message=String(s),element=el("status");
+ element.textContent=message;
+ var tone="";
+ if(/error|incompatible|no respondió|no se pudo|motor sin conexión/i.test(message))tone="error";
+ else if(/perdió confianza|corregir|pausad/i.test(message))tone="warning";
+ else if(/terminado|Null con|Corrección registrada|Track terminado/i.test(message))tone="success";
+ element.setAttribute("data-tone",tone);
+ if(tone==="error"){badge("error","Error");el("phaseLabel").textContent="Revisar conexión";}
+ else if(/cargando|preparando|inicia/i.test(message)&&!ready){badge("loading","Iniciando");el("phaseLabel").textContent="Preparando motor";}
+ else if(/pausad|pausando/i.test(message)){badge("paused","Pausado");el("phaseLabel").textContent="En pausa";}
+ else if(/terminado|Null con/i.test(message)){badge("done","Finalizado");el("phaseLabel").textContent="Seguimiento terminado";}
+ else if(/siguiendo el objeto/i.test(message)){badge("tracking","Analizando");el("phaseLabel").textContent="Seguimiento activo";}
+ else if(ready&&!busy){badge("ready","Listo");el("phaseLabel").textContent=hasData?"Sesión preparada":"Listo para analizar";}
+}
+function populateSource(){
+ el("sourceLayer").textContent=job?job.layer_name:"Seleccioná un video y dibujá una máscara cerrada (G).";
+ el("sourceLayer").className="source-value"+(job?"":" placeholder");
+ el("sourceComp").textContent=job?job.comp_name:"—";
+ el("sourceMask").textContent=job?job.mask_name:"—";
+}
 function controls(){
   el("start").disabled=busy;
   el("single").disabled=busy;
@@ -18,6 +43,12 @@ function controls(){
   el("new").disabled=busy;
   el("reconnect").disabled=busy||ready;
   el("previewMode").disabled=busy;
+  el("start").textContent=job?"▶ Continuar tracking":"▶ Iniciar tracking";
+  if(busy){badge("tracking","Analizando");el("phaseLabel").textContent="Seguimiento activo";}
+  else if(ready&&el("engineBadge").getAttribute("data-state")==="loading"){
+    badge("ready","Listo");
+    el("phaseLabel").textContent=job?"Sesión preparada":"Listo para analizar";
+  }
 }
 function lock(v){busy=v;controls();}
 function bridge(method,args){
@@ -145,6 +176,7 @@ function waitForPreview(ms){return new Promise(function(resolve){setTimeout(reso
 async function startSession(){
  var selection=await bridge("useMask",[]);
  job=selection.job;
+ populateSource();
  job.confidence_threshold=0.24;
  job.tracking_model="similarity";
  job.ecc_refine=true;
@@ -175,6 +207,7 @@ async function track(continuous){
        progress(r);
        var latest=r.new[r.new.length-1];
        lastScore=latest.confidence;
+       el("quality").setAttribute("data-tone",lastScore<.3?"low":lastScore>=.8?"high":"");
        el("quality").textContent="PlateTrack "+Math.round(lastScore*100)+" % · "+latest.points+
          " puntos · "+(latest.ecc_score===null?"ECC sin convergencia":"ECC "+Number(latest.ecc_score).toFixed(2))+
          " · cuadro "+latest.frame;
@@ -232,12 +265,15 @@ el("correct").onclick=correct;
 el("null").onclick=nullFromMask;
 el("new").onclick=function(){
  if(busy)return;job=null;hasData=false;el("count").textContent="0 cuadros";el("bar").value=0;
- el("quality").textContent="Confianza y estimación de giro aparecerán durante el seguimiento.";
+ el("quality").textContent="Confianza y referencias aparecerán durante el análisis.";
+ el("quality").setAttribute("data-tone","");
+ populateSource();
  status("Nueva sesión: dibujá una máscara nueva o elegí otra capa.");
  controls();
 };
 el("reconnect").onclick=function(){launch().catch(function(){});};
 window.addEventListener("beforeunload",function(){if(proc)try{proc.kill();}catch(ignore){}});
+populateSource();
 controls();
 verifyBridge()
  .then(function(){return launch();})
