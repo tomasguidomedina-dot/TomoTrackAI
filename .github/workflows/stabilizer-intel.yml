@@ -1,8 +1,8 @@
-name: TomoTrackAI v0.6 PlateTrack Camera Stabilizer Intel
+name: TomoTrackAI v0.6.2 PlateTrack Camera Pins Intel
 
 on:
   pull_request:
-    branches: [feature/adobe-panel-ui-v0.5.1]
+    branches: [fix/stabilizer-export-button-v0.6.1]
   workflow_dispatch:
 
 permissions:
@@ -30,26 +30,27 @@ jobs:
           node tests/mask-sequence.test.js
           node tests/null-transform.test.js
           node tests/stabilizer-transform.test.js
+          node tests/stabilizer-export-button.test.js
           bash -n scripts/Instalar_TomoTrackAI.command scripts/Desinstalar_TomoTrackAI.command
-          python -m py_compile engine/camera_stabilization.py engine/platetrack_engine.py engine/tests_stabilization.py engine/tests_stabilization_integration.py
+          python -m py_compile engine/camera_stabilization.py engine/camera_pins.py engine/platetrack_engine.py engine/tests_stabilization.py engine/tests_stabilization_integration.py engine/tests_camera_pins.py engine/tests_camera_pins_integration.py
           python3 - <<'PY'
           import xml.etree.ElementTree as ET
           from pathlib import Path
           p=Path("bridge/extension/panel.js").read_text()
           h=Path("bridge/extension/jsx/host.jsx").read_text()
           t=Path("bridge/extension/index.html").read_text()
-          assert ET.parse("bridge/extension/CSXS/manifest.xml").getroot().attrib["ExtensionBundleId"]=="com.tomo.trackai60"
-          assert "platetrack-0.6.0-bridge-20261012" in p and "platetrack-0.6.0-bridge-20261012" in h
-          assert "TomoTrackAI6" in p and "TomoTrackAI5" not in p
-          assert "com.tomo.trackai60" in Path("scripts/Instalar_TomoTrackAI.command").read_text()
-          assert 'PANEL="$CEP/com.tomo.trackai60"' in Path("scripts/Instalar_TomoTrackAI.command").read_text()
+          assert ET.parse("bridge/extension/CSXS/manifest.xml").getroot().attrib["ExtensionBundleId"]=="com.tomo.trackai62"
+          assert "platetrack-0.6.2-bridge-20261012" in p and "platetrack-0.6.2-bridge-20261012" in h
+          assert "TomoTrackAI62" in p and "TomoTrackAI5" not in p
+          assert "com.tomo.trackai62" in Path("scripts/Instalar_TomoTrackAI.command").read_text()
+          assert 'PANEL="$CEP/com.tomo.trackai62"' in Path("scripts/Instalar_TomoTrackAI.command").read_text()
           assert 'sample.matrix' in h and 's.scale_factor' in h
           assert 's.bbox[2]' not in h
           for item in ("start","pause","correct","null","stabilize","stabCrop","stabRadius","stabMode",
                        "stabStrength","workMode","modeObject","modeStabilize","previewMode","quality"):
               assert 'id="'+item+'"' in t,item
-          assert "applyStabilization" in h and '"stabilize"' in Path("engine/platetrack_engine.py").read_text()
-          print("PASS — UI object+stabilize, Bridge v0.6, v0.5 untouched")
+          assert "applyStabilization" in h and "gotoLast" in h and '"stabilize"' in Path("engine/platetrack_engine.py").read_text()
+          print("PASS — UI Pins v0.6.2, Bridge aislado; v0.5/v0.6 intactos")
           PY
       - name: Dependencias OpenCV offline runtime (nada de ONNX)
         shell: bash
@@ -59,7 +60,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          (cd engine && python -m unittest tests_platetrack tests_stabilization tests_stabilization_integration -v)
+          (cd engine && python -m unittest tests_platetrack tests_stabilization tests_stabilization_integration tests_camera_pins tests_camera_pins_integration -v)
       - name: Compilar motor único Intel para Monterey
         shell: bash
         run: |
@@ -71,6 +72,7 @@ jobs:
             --hidden-import platetrack.refine \
             --hidden-import platetrack.stabilize \
             --hidden-import camera_stabilization \
+            --hidden-import camera_pins \
             --name TomoPlateTrack --distpath build-motor \
             --workpath build-py --specpath build-py engine/platetrack_engine.py
           test -x build-motor/TomoPlateTrack/TomoPlateTrack
@@ -104,23 +106,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          NAME=TomoTrackAI_v0.6.0_Estabilizador_PlateTrack_Intel
+          NAME=TomoTrackAI_v0.6.2_Pins_Stabilizer_Intel
           ROOT=package/$NAME
           mkdir -p "$ROOT"
           ditto build-motor/TomoPlateTrack "$ROOT/TomoPlateTrack"
           ditto bridge/extension "$ROOT/extension"
           cp scripts/Instalar_TomoTrackAI.command "$ROOT/"
-          cp ESTABILIZADOR_V06_LEEME.md "$ROOT/LEEME_PRIMERO.md"
+          cp CAMERA_PINS_V062_LEEME.md "$ROOT/LEEME_PRIMERO.md"
           cp PLATETRACK_ATTRIBUTION.md "$ROOT/PLATETRACK_ATTRIBUTION.md"
           chmod +x "$ROOT/"*.command
           test ! -e "$ROOT/TomoTrackNano"
-          grep -q 'com.tomo.trackai60' "$ROOT/extension/CSXS/manifest.xml"
-          grep -q 'TomoTrackAI6' "$ROOT/extension/panel.js"
+          grep -q 'com.tomo.trackai62' "$ROOT/extension/CSXS/manifest.xml"
+          grep -q 'TomoTrackAI62' "$ROOT/extension/panel.js"
           (cd package && ditto -c -k --sequesterRsrc --keepParent "$NAME" "$NAME.zip")
-      - name: Publicar candidato experimental v0.6 Intel
+      - name: Publicar candidato experimental v0.6.2 Intel
         uses: actions/upload-artifact@v4
         with:
-          name: TomoTrackAI_v0.6.0_Estabilizador_PlateTrack_Intel
-          path: package/TomoTrackAI_v0.6.0_Estabilizador_PlateTrack_Intel.zip
+          name: TomoTrackAI_v0.6.2_Pins_Stabilizer_Intel
+          path: package/TomoTrackAI_v0.6.2_Pins_Stabilizer_Intel.zip
           retention-days: 30
           if-no-files-found: error

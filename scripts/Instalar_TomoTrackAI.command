@@ -1,25 +1,25 @@
 #!/bin/bash
-# v0.6 cámara estabilizada. Instala A LA PAR de la v0.5 funcional.
+# v0.6.2 cámara estabilizada. Instala A LA PAR de la v0.5 funcional.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-BASE="$HOME/Library/Application Support/TomoTrackAI6"
+BASE="$HOME/Library/Application Support/TomoTrackAI62"
 CEP="$HOME/Library/Application Support/Adobe/CEP/extensions"
 MOTOR="$BASE/engine/TomoPlateTrack"
-PANEL="$CEP/com.tomo.trackai60"
+PANEL="$CEP/com.tomo.trackai62"
 STAMP="$(date +%Y%m%d-%H%M%S)"
-BACK="$BASE/respaldos/pre-v0.6-$STAMP"
+BACK="$BASE/respaldos/pre-v0.6.2-$STAMP"
 STAGE=""
 on_exit() {
   status=$?
   if [[ -n "$STAGE" && -d "$STAGE" ]];then rm -rf "$STAGE";fi
   if [[ "$status" -ne 0 ]];then
-    echo "La instalación v0.6 se detuvo. v0.5 permanece intacta."
+    echo "La instalación v0.6.2 se detuvo. v0.5 permanece intacta."
     read -r -p "Enter para cerrar..." _ || true
   fi
 }
 trap on_exit EXIT
-echo "TomoTrackAI v0.6 — PlateTrack + estabilizador local Intel"
-echo "Se instalará una extensión separada; NO se reemplazará tu v0.5."
+echo "TomoTrackAI v0.6.2 — PlateTrack + estabilizador local Intel"
+echo "Se instalará una extensión separada; NO se reemplazará tu v0.5 ni tu v0.6.1."
 if [[ "$(uname -s)" != "Darwin" || "$(uname -m)" != "x86_64" ]];then
  echo "Solo macOS Intel"; exit 1
 fi
@@ -30,15 +30,15 @@ if [[ ! -x "$ROOT/TomoPlateTrack/TomoPlateTrack" || ! -f "$ROOT/extension/CSXS/m
  echo "Este .command debe estar en la carpeta principal junto a TomoPlateTrack/ y extension/."
  exit 1
 fi
-if ! grep -q 'com.tomo.trackai60' "$ROOT/extension/CSXS/manifest.xml";then
- echo "El paquete no contiene el panel v0.6 correcto.";exit 1
+if ! grep -q 'com.tomo.trackai62' "$ROOT/extension/CSXS/manifest.xml";then
+ echo "El paquete no contiene el panel v0.6.2 correcto.";exit 1
 fi
 mkdir -p "$BASE/staging" "$BASE/engine" "$CEP" "$BACK"
 STAGE="$(mktemp -d "$BASE/staging/preflight-XXXXXXXX")"
 ditto "$ROOT/TomoPlateTrack" "$STAGE/TomoPlateTrack"
 chmod +x "$STAGE/TomoPlateTrack/TomoPlateTrack"
 xattr -dr com.apple.quarantine "$STAGE/TomoPlateTrack" 2>/dev/null || true
-echo "Comprobando arranque REAL v0.6, offline (hasta 75 segundos)..."
+echo "Comprobando arranque REAL v0.6.2, offline (hasta 75 segundos)..."
 printf '{"cmd":"close"}\n' > "$STAGE/input"
 "$STAGE/TomoPlateTrack/TomoPlateTrack" < "$STAGE/input" > "$STAGE/stdout" 2> "$STAGE/stderr" &
 PID=$!
@@ -53,12 +53,12 @@ if [[ "$OK" -ne 1 ]];then
  sleep .2
  kill -9 "$PID" 2>/dev/null || true
  wait "$PID" 2>/dev/null || true
- echo "Motor no respondió: no se instaló v0.6."
+ echo "Motor no respondió: no se instaló v0.6.2."
  head -c 800 "$STAGE/stderr" || true
  exit 1
 fi
 wait "$PID" 2>/dev/null || true
-echo "Motor validado. Instalando versión separada v0.6..."
+echo "Motor validado. Instalando versión separada v0.6.2..."
 if [[ -d "$MOTOR" ]];then
  ditto "$MOTOR" "$BACK/TomoPlateTrack-anterior"
  rm -rf "$MOTOR"
@@ -74,7 +74,7 @@ xattr -dr com.apple.quarantine "$PANEL" 2>/dev/null || true
 defaults write com.adobe.CSXS.11 PlayerDebugMode 1
 defaults write com.adobe.CSXS.12 PlayerDebugMode 1
 echo ""
-echo "Listo. AE 2024 > Ventana > Extensiones (heredadas) > TomoTrackAI · Estabilización v0.6"
-echo "v0.5 (com.tomo.trackai50) y todos sus archivos siguen como estaban."
+echo "Listo. AE 2024 > Ventana > Extensiones (heredadas) > TomoTrackAI · Pins v0.6.2"
+echo "v0.5 (com.tomo.trackai50) y v0.6.1 (com.tomo.trackai60) siguen intactas."
 echo "Antes de usarlo duplicá tu proyecto AE. Es candidato experimental."
 read -r -p "Enter para salir..." _ || true

@@ -81,21 +81,24 @@ def auto_zoom(corrections,width,height,max_zoom=2.5):
 
 def stabilize_samples(samples,anchors,width,height,*,mode="smooth",strength=1.,
                       radius=15,auto_crop=True,max_zoom=2.5,min_confidence=.35):
-    """Return stable camera correction matrices, no changes to PlateTrack data.
-    Source samples must have sequential frame numbers; corrections are not
-    interpolated across untrusted motion or edited PlateTrack anchor segments.
+    """Return stabilized transforms in the ORIGINAL reference coordinate system.
+    Bounded manual gaps are allowed only when marked by an explicit 4-corner
+    pin; these frames are not portrayed as automatically tracked.
     """
     if mode not in ("smooth","lock"):
         raise ValueError("Modo no soportado: "+str(mode))
     if not (0<=strength<=1):raise ValueError("Intensidad fuera de 0..1")
     if not(2<=radius<=120):raise ValueError("Radio de suavizado fuera de 2..120")
     if len(samples)<5:raise ValueError("Se necesitan al menos 5 fotogramas de tracking.")
-    if len(anchors)!=1:raise ValueError(
-       "Hay correcciones de referencia en esta sesión. Iniciá una sesión nueva para estabilizar con una trayectoria única.")
+    if not anchors or any(not a.get("manual_pin") for a in anchors[1:]):
+        raise ValueError("Se encontraron correcciones de referencia sin un pin manual válido.")
     for idx,s in enumerate(samples):
         if idx and s["frame"]!=samples[idx-1]["frame"]+1:
             raise ValueError("Faltan fotogramas del seguimiento de cámara.")
-        if (float(s.get("confidence",0))<min_confidence or s.get("needs_correction",False)):
+        if s.get("manual_interpolated"):
+            if not any(a.get("manual_pin") and int(a["frame"])>int(s["frame"]) for a in anchors):
+                raise ValueError("Interpolación manual sin pin posterior verificado.")
+        elif (float(s.get("confidence",0))<min_confidence or s.get("needs_correction",False)):
             raise ValueError("Referencia perdida en fotograma %s. Corregí el seguimiento antes de estabilizar."%s["frame"])
     quad=anchors[0]["bbox"]
     ref=np.array([(float(quad["x"])+float(quad["w"])/2)*width/float(anchors[0].get("source_width",width)),
@@ -140,8 +143,12 @@ def stabilize_samples(samples,anchors,width,height,*,mode="smooth",strength=1.,
                            matrix=np.round(corrected,9).tolist(),
                            tx=float(corrected[0,2]),ty=float(corrected[1,2]),
                            rotation_deg=float(degrees),scale_percent=float(scale*100),
-                           confidence=s["confidence"]))
+                           confidence=s["confidence"],
+                           manual_interpolated=bool(s.get("manual_interpolated",False)),
+                           manual_pin=bool(s.get("manual_pin",False))))
     return dict(mode=mode,strength=float(strength),radius=int(radius),
                 auto_crop=bool(auto_crop),zoom=round(zoom,5),
                 min_confidence=float(min(conf)),samples=output,
+                manual_frames=sum(bool(s.get("manual_interpolated")) for s in samples),
+                pin_count=sum(bool(a.get("manual_pin")) for a in anchors),
                 source_width=int(width),source_height=int(height))

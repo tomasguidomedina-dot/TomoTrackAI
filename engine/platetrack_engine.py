@@ -181,6 +181,8 @@ class Engine:
         self.base_box=None
         self.stabilization=None
         self.tracking_mode="object"
+        self.camera_offset=None
+        self.camera_reference_quad=None
     def close(self):
         if self.cap is not None:self.cap.release()
         self.cap=None;self.tracker=None
@@ -192,9 +194,12 @@ class Engine:
     def _start_tracker(self,frame,shape):
         # Coordinates of AE mask are in source pixels; convert to decoded video.
         fx=self.width/self.source_width;fy=self.height/self.source_height
-        vertices=shape["vertices"]
-        quad=corners_from_bbox(polygon_bbox(shape))
-        quad_video=[[x*fx,y*fy] for x,y in quad]
+        if self.tracking_mode=="stabilize":
+            from camera_pins import checked_quad
+            quad_video=checked_quad(shape,fx,fy).tolist()
+        else:
+            quad=corners_from_bbox(polygon_bbox(shape))
+            quad_video=[[x*fx,y*fy] for x,y in quad]
         self.tracker=StreamingPlate(self.cv2,self.model,self.ecc_refine)
         self.tracker.start(frame,quad_video)
         self.base_box=polygon_bbox(shape)
@@ -202,6 +207,8 @@ class Engine:
         self.close()
         self.samples=[];self.anchors=[];self.metadata=None
         self.stabilization=None
+        self.camera_offset=None
+        self.camera_reference_quad=None
         self.tracking_mode=job.get("mode","object")
         if self.tracking_mode not in ("object","stabilize"):
             raise ValueError("Modo de sesión inválido.")
@@ -230,6 +237,10 @@ class Engine:
         self.threshold=max(.1,min(1.,finite(job.get("confidence_threshold",.30),"confianza")))
         self.global_scale=1.;self.global_rotation=0.
         self._start_tracker(frame,shape)
+        if self.tracking_mode=="stabilize":
+            import numpy as np
+            self.camera_offset=np.eye(3,dtype=np.float64)
+            self.camera_reference_quad=self.tracker.ref_quad.copy()
         self.anchors=[dict(frame=self.index,bbox=dict(job["bbox"]),shape=shape,
                            scale_factor=1.,rotation_deg=0.)]
         self.metadata={k:job[k] for k in
@@ -244,8 +255,17 @@ class Engine:
         coords=[p for p in local["quad"]]
         xs=[p[0] for p in coords];ys=[p[1] for p in coords]
         conf=local["confidence"]
+        matrix=local["matrix"]
+        if self.tracking_mode=="stabilize":
+            import numpy as np
+            # Local tracker re-seeds at each manual pin. Convert its trajectory
+            # back into original reference coordinates before stabilization.
+            matrix=(self.camera_offset@np.asarray(local["matrix"],dtype=np.float64)).tolist()
+            sc=math.hypot(matrix[0][0],matrix[1][0])
+            scale=sc
+            angle=math.degrees(math.atan2(matrix[1][0],matrix[0][0]))
         rec=dict(frame=self.index,source_time=round(self.index/self.fps,8),
-                 matrix=local["matrix"],cx=round(local["cx"],5),cy=round(local["cy"],5),
+                 matrix=matrix,cx=round(local["cx"],5),cy=round(local["cy"],5),
                  bbox=[min(xs),min(ys),max(xs)-min(xs),max(ys)-min(ys)],
                  scale_factor=round(scale,7),rotation_deg=round(angle,5),
                  local_scale_factor=local["scale_factor"],
@@ -274,6 +294,8 @@ class Engine:
 
     def reseed(self,cmd):
         if self.cap is None:raise ValueError("No hay sesión para corregir.")
+        if self.tracking_mode=="stabilize":
+            return self.pin_camera(cmd)
         index=max(0,int(round(finite(cmd["source_seconds"],"source_seconds")*self.fps)))
         if index>self.end_index:raise ValueError("Corrección fuera del video")
         shape=cmd["mask_shape"];polygon_bbox(shape)
@@ -288,6 +310,41 @@ class Engine:
         self.anchors.append(dict(frame=index,bbox=dict(cmd["bbox"]),shape=shape,
                                  scale_factor=self.global_scale,rotation_deg=self.global_rotation))
         return dict(corrected=self.record(self.tracker.result()),total=len(self.samples))
+
+    def pin_camera(self,cmd):
+        import numpy as np
+        from camera_pins import checked_quad,similarity_from_quad,pin_samples
+        if self.tracking_mode!="stabilize" or self.cap is None or self.tracker is None:
+            raise ValueError("No existe un análisis de cámara para corregir.")
+        frame_id=int(round(finite(cmd["source_seconds"],"source_seconds")*self.fps))
+        if frame_id!=self.index:
+            raise ValueError("La corrección debe hacerse en el fotograma %s. Mové el cabezal y corregí allí la máscara."%self.index)
+        if frame_id<=self.samples[0]["frame"]:
+            raise ValueError("La primera referencia no se puede corregir en esta sesión.")
+        shape=cmd["mask_shape"]
+        fx=self.width/self.source_width;fy=self.height/self.source_height
+        pin_quad=checked_quad(shape,fx,fy)
+        original_quad=self.camera_reference_quad
+        pinned_matrix=similarity_from_quad(original_quad,pin_quad)
+        previous,stats=pin_samples(self.samples,frame_id,pinned_matrix,original_quad)
+        # Validate feature availability BEFORE touching existing tracker/session.
+        frame=self.frame_at(frame_id)
+        tracker=StreamingPlate(self.cv2,self.model,self.ecc_refine)
+        tracker.start(frame,pin_quad.tolist())
+        self.samples=previous
+        self.tracker=tracker
+        self.camera_offset=pinned_matrix
+        self.index=frame_id
+        self.anchors.append(dict(frame=frame_id,shape=shape,bbox=dict(cmd["bbox"]),
+                                 manual_pin=True,pin_blend_start=stats["blend_start"]))
+        rec=self.record(self.tracker.result())
+        rec["manual_pin"]=True
+        rec["confidence"]=1.0
+        rec["low_confidence"]=False
+        rec["needs_correction"]=False
+        return dict(corrected=rec,total=len(self.samples),
+                    manual_interpolated=stats["gap"],
+                    blend_start=stats["blend_start"],pin_frame=frame_id)
 
     def stabilize(self,cmd):
         from camera_stabilization import stabilize_samples
@@ -312,12 +369,14 @@ class Engine:
         return dict(frames=len(self.stabilization["samples"]),
                     zoom=self.stabilization["zoom"],
                     weakest=self.stabilization["min_confidence"],
+                    manual_frames=self.stabilization["manual_frames"],
+                    pin_count=self.stabilization["pin_count"],
                     mode=self.stabilization["mode"])
 
     def snapshot(self,out):
         if not self.metadata:raise ValueError("No existe sesión.")
         target=Path(out);target.parent.mkdir(parents=True,exist_ok=True)
-        payload=dict(version="0.5",engine="PlateTrack OpenCV (Streaming)",
+        payload=dict(version="0.6.2",engine="PlateTrack OpenCV (Streaming)",
                      source_file=self.metadata["video"],comp_name=self.metadata["comp_name"],
                      layer_name=self.metadata["layer_name"],layer_start=self.metadata["layer_start"],
                      mask_name=self.metadata["mask_name"],run_id=self.metadata["run_id"],

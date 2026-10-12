@@ -4,10 +4,10 @@
 var tomoMask = tomoMask || {};
 (function(){
 var TAG="TomoTrackAI - OBJETIVO", state={run:"",lastFrame:-1};
-var BUILD_ID="platetrack-0.6.0-bridge-20261012";
+var BUILD_ID="platetrack-0.6.2-bridge-20261012";
 function json(v){return JSON.stringify(v);}
 function fail(e){return json({ok:false,error:String(e.message||e),bridge_id:BUILD_ID});}
-tomoMask.version=function(){return json({ok:true,version:"0.6.0",bridge_id:BUILD_ID});};
+tomoMask.version=function(){return json({ok:true,version:"0.6.2",bridge_id:BUILD_ID});};
 function comp(){var x=app.project&&app.project.activeItem;if(!(x instanceof CompItem))throw Error("Abrí una composición de After Effects.");return x;}
 function layer(){
  var c=comp(),s=c.selectedLayers;
@@ -149,6 +149,19 @@ tomoMask.applyProgress=function(path){var undo=false;try{
  }
  return json({ok:true,applied:applied,total:d.samples.length,last_time:lastT});
 }catch(e){return fail(e);}finally{if(undo)app.endUndoGroup();}};
+// During camera stabilization, the mask is not animated on each frame.
+// Move AE playhead to the EXACT low-confidence stopping frame so the user can
+// drag the ORIGINAL four corners over their corresponding static background.
+tomoMask.gotoLast=function(path){try{
+ var d=load(path),r=locate(d);
+ var last=d.samples[d.samples.length-1],t=timeOf(d,last);
+ if(t<0||t>r.z.c.duration)throw Error("Fotograma de corrección fuera de composición.");
+ r.z.c.time=t;
+ r.z.l.selected=true;
+ r.mask.property("ADBE Mask Shape").selected=true;
+ return json({ok:true,frame:last.frame,source_time:last.source_time});
+}catch(e){return fail(e);}};
+
 tomoMask.correction=function(){try{
  var a=inspect(),z=a.z,m=a.m;
  return json({ok:true,source_seconds:z.c.time-z.l.startTime,bbox:a.b,
