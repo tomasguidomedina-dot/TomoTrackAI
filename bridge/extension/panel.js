@@ -6,6 +6,7 @@ var cep=window.__adobe_cep__;
 var req=(window.cep_node&&window.cep_node.require)||window.require||window.nodeRequire;
 var fs,os,path,spawn,readline,proc=null,ready=false,starting=null,queue=[],job=null;
 var resultFile="",busy=false,stopping=false,hasData=false,bootStart=0,clock=null;
+var EXPECTED_BRIDGE="mask-0.3.2-bridge-20261012",bridgeVerified=false;
 function status(s){el("status").textContent=String(s);}
 function controls(){
   el("start").disabled=busy;
@@ -27,6 +28,23 @@ function bridge(method,args){
    });
  });
 }
+async function verifyBridge(){
+  // El motor es local. Esta comprobación evita ejecutar ExtendScript viejo
+  // que puede quedar cacheado en AE después de instalar una nueva versión.
+  try{
+    var v=await bridge("version",[]);
+    if(v.bridge_id!==EXPECTED_BRIDGE)throw Error("Puente "+String(v.version||"?")+
+       " (esperado 0.3.2).");
+    bridgeVerified=true;
+    el("bridgeVersion").textContent="Puente AE: v"+v.version+" verificado";
+    return v;
+  }catch(e){
+    bridgeVerified=false;
+    el("bridgeVersion").textContent="Puente AE: versión sin verificar";
+    throw Error("After Effects ejecuta un puente viejo o incompatible. "+
+      "Cerrá completamente AE, aplicá el parche v0.3.2 y reabrilo. Detalle: "+e.message);
+  }
+}
 function disconnect(reason){
   ready=false;proc=null;starting=null;clearInterval(clock);
   while(queue.length)queue.shift().reject(Error(reason));
@@ -36,7 +54,7 @@ function launch(){
  if(ready&&proc)return Promise.resolve();
  if(starting)return starting;
  bootStart=Date.now();
- status("Iniciando NanoTrack... mientras tanto podés dibujar la máscara.");
+ status("Cargando motor LOCAL (sin Internet)... podés dibujar la máscara mientras se inicia.");
  starting=new Promise(function(resolve,reject){
    var settled=false,log="",timeout=null,child=null;
    function bad(err){
@@ -46,7 +64,8 @@ function launch(){
      reject(err instanceof Error?err:Error(String(err)));
    }
    clock=setInterval(function(){
-     if(!settled)el("boot").textContent="Motor inicializando: "+((Date.now()-bootStart)/1000).toFixed(1)+" s";
+     if(!settled)el("boot").textContent="Motor local: "+((Date.now()-bootStart)/1000).toFixed(1)+" s"+
+       ((Date.now()-bootStart)>12000?" · inicio lento, sin conexión a Internet":"");
    },500);
    timeout=setTimeout(function(){
       bad(Error("NanoTrack no respondió después de 60 segundos. Pulsá Reconectar."));
@@ -131,6 +150,7 @@ async function track(continuous){
  if(busy)return;
  lock(true);stopping=false;
  try{
+   await verifyBridge();
    await launch();
    if(!job)await startSession();
    var r;
@@ -164,6 +184,7 @@ async function correct(){
  if(busy||!hasData)return;
  lock(true);
  try{
+   await verifyBridge();
    var c=await bridge("correction",[]);
    await rpc({cmd:"reseed",source_seconds:c.source_seconds,bbox:c.bbox,mask_shape:c.mask_shape});
    await rpc({cmd:"snapshot",output:resultFile});
@@ -178,6 +199,7 @@ async function nullFromMask(){
  lock(true);
  try{
    await rpc({cmd:"snapshot",output:resultFile});
+   await verifyBridge();
    var r=await bridge("makeNull",[resultFile]);
    status("Null creado correctamente: "+r.keyframes+" keyframes.");
  }catch(e){status("Error creando Null: "+e.message);}
@@ -196,5 +218,8 @@ el("new").onclick=function(){
 el("reconnect").onclick=function(){launch().catch(function(){});};
 window.addEventListener("beforeunload",function(){if(proc)try{proc.kill();}catch(ignore){}});
 controls();
-launch().catch(function(){}); // Arranca en paralelo mientras el usuario dibuja su máscara.
+verifyBridge()
+ .then(function(){return launch();})
+ .catch(function(e){status(e.message);});
+ // El motor NO envía video ni fotogramas a Internet.
 })();
