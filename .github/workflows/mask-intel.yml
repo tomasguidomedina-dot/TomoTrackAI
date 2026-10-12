@@ -1,4 +1,4 @@
-name: TomoTrackAI v0.3.1 - Secuencia de mascara Intel
+name: TomoTrackAI v0.4 - Seguimiento P S R + visor Intel
 
 on:
   pull_request:
@@ -30,12 +30,13 @@ jobs:
           node --check bridge/extension/panel.js
           node --check --input-type=commonjs < bridge/extension/jsx/host.jsx
           node tests/mask-sequence.test.js
+          node tests/null-transform.test.js
           bash -n scripts/Instalar_TomoTrackAI.command scripts/Desinstalar_TomoTrackAI.command
           python3 - <<'PY'
           import xml.etree.ElementTree as ET
           from pathlib import Path
           tree=ET.parse('bridge/extension/CSXS/manifest.xml')
-          assert 'com.tomo.trackai3' in tree.getroot().attrib['ExtensionBundleId']
+          assert tree.getroot().attrib['ExtensionBundleId']=='com.tomo.trackai40'
           host=Path('bridge/extension/jsx/host.jsx').read_text()
           pane=Path('bridge/extension/panel.js').read_text()
           html=Path('bridge/extension/index.html').read_text()
@@ -44,10 +45,15 @@ jobs:
           for phrase in ('MaskMode.NONE','ADBE Mask Shape','setValueAtTime'):
               assert phrase in host,phrase
           assert 'ROI Select' not in html, 'El panel no debe mencionar el antiguo selector.'
-          for name in ('start','pause','correct','null','bar','boot'):
+          for name in ('start','pause','correct','null','bar','boot','previewMode','scaleTrack','rotationTrack','quality'):
               assert 'id="'+name+'"' in html,name
           for name in ('Instalar_TomoTrackAI.command','Desinstalar_TomoTrackAI.command'):
               assert Path('scripts',name).exists()
+          assert 'mask-0.4.0-bridge-20261012' in host
+          assert 'mask-0.4.0-bridge-20261012' in pane
+          assert 'ADBE Rotate Z' in host
+          assert 'setValuesAtTimes(times,angles)' in host
+          assert 'OpticalRotation' in Path('engine/nanotrack_engine.py').read_text()
           PY
           python -m py_compile engine/nanotrack_engine.py engine/tests.py
 
@@ -104,24 +110,24 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ROOT=package/TomoTrackAI_v0.3.1_Mac_Intel
+          ROOT=package/TomoTrackAI_v0.4_Mac_Intel
           mkdir -p "$ROOT"
           ditto build-motor/TomoTrackNano "$ROOT/TomoTrackNano"
           ditto bridge/extension "$ROOT/extension"
           cp scripts/Instalar_TomoTrackAI.command "$ROOT/"
           cp scripts/Desinstalar_TomoTrackAI.command "$ROOT/"
-          cp MASK_V03_STATUS.md "$ROOT/LEEME_PRIMERO.md"
+          cp MASK_V04_STATUS.md "$ROOT/LEEME_PRIMERO.md"
           chmod +x "$ROOT/"*.command
           test ! -e "$ROOT/TomoTrack_ROI_Select.plugin"
           test ! -e "$ROOT/TomoTrack_Native_Check.plugin"
           test -f "$ROOT/extension/jsx/host.jsx"
           (cd package && ditto -c -k --sequesterRsrc --keepParent \
-            TomoTrackAI_v0.3.1_Mac_Intel TomoTrackAI_v0.3.1_Mac_Intel.zip)
+            TomoTrackAI_v0.4_Mac_Intel TomoTrackAI_v0.4_Mac_Intel.zip)
 
-      - name: Publicar instalador v0.3
+      - name: Publicar instalador v0.4
         uses: actions/upload-artifact@v4
         with:
-          name: TomoTrackAI_v0.3.1_Mac_Intel
-          path: package/TomoTrackAI_v0.3.1_Mac_Intel.zip
+          name: TomoTrackAI_v0.4_Mac_Intel
+          path: package/TomoTrackAI_v0.4_Mac_Intel.zip
           if-no-files-found: error
           retention-days: 30
