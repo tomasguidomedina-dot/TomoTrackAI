@@ -6,8 +6,8 @@ var cep=window.__adobe_cep__;
 var req=(window.cep_node&&window.cep_node.require)||window.require||window.nodeRequire;
 var fs,os,path,spawn,readline,proc=null,ready=false,starting=null,queue=[],job=null;
 var resultFile="",busy=false,stopping=false,hasData=false,bootStart=0,clock=null;
-var lastScore=1,trackCompleted=false,stabilized=false;
-var EXPECTED_BRIDGE="platetrack-0.6.2-bridge-20261012",bridgeVerified=false;
+var lastScore=1,trackCompleted=false,stabilized=false,pinEditing=false;
+var EXPECTED_BRIDGE="platetrack-0.6.3-bridge-20261012",bridgeVerified=false;
 // Sólo interfaz. No afecta el motor, sus parámetros ni sus keyframes.
 function badge(state,label){
  var node=el("engineBadge");node.setAttribute("data-state",state);
@@ -46,7 +46,9 @@ function updateMode(){
   "Dibujá una máscara sobre un fondo estático con textura. La cámara se estabiliza a partir de ese movimiento.":
   "Dibujá una máscara cerrada sobre el objeto a seguir.";
  el("correct").hidden=false;
- el("correct").textContent=stab?"Fijar 4 puntos del fondo":"Corregir máscara";
+ el("correct").textContent=stab?"Aplicar corrección de 4 puntos":"Corregir máscara";
+ el("showPins").hidden=!stab||!pinEditing;
+ el("showPins").disabled=busy||!pinEditing;
  el("single").textContent=stab?"Analizar 1 cuadro":"Avanzar 1 cuadro";
  controls();
 }
@@ -54,12 +56,12 @@ function controls(){
   el("start").disabled=busy;
   el("single").disabled=busy;
   el("pause").disabled=!busy;
-  el("correct").disabled=busy||!hasData;
+  el("correct").disabled=busy||!hasData||(inStabMode()&&!pinEditing);
   el("null").disabled=busy||!hasData||inStabMode();
   // No depender del estado local de fin de sesión para habilitar la acción.
   // El motor PlateTrack valida último frame, confianza y continuidad de muestras.
   // Una sesión parcial puede pulsarse: devuelve un error claro, no un botón gris.
-  el("stabilize").disabled=busy||!hasData||stabilized||!inStabMode();
+  el("stabilize").disabled=busy||!hasData||stabilized||!inStabMode()||pinEditing;
   el("new").disabled=busy;
   el("reconnect").disabled=busy||ready;
   el("previewMode").disabled=busy;
@@ -89,7 +91,7 @@ async function verifyBridge(){
   try{
     var v=await bridge("version",[]);
     if(v.bridge_id!==EXPECTED_BRIDGE)throw Error("Puente "+String(v.version||"?")+
-       " (esperado 0.6.2).");
+       " (esperado 0.6.3).");
     bridgeVerified=true;
     el("bridgeVersion").textContent="Puente AE: v"+v.version+" verificado";
     return v;
@@ -97,7 +99,7 @@ async function verifyBridge(){
     bridgeVerified=false;
     el("bridgeVersion").textContent="Puente AE: versión sin verificar";
     throw Error("After Effects ejecuta un puente viejo o incompatible. "+
-      "Cerrá completamente AE, reinstalá TomoTrackAI v0.6.2 y reabrilo. Detalle: "+e.message);
+      "Cerrá completamente AE, reinstalá TomoTrackAI v0.6.3 y reabrilo. Detalle: "+e.message);
   }
 }
 function disconnect(reason){
@@ -129,7 +131,7 @@ function launch(){
      if(!req)throw Error("El panel no tiene acceso al motor local (Node de CEP).");
      fs=req("fs");os=req("os");path=req("path");
      spawn=req("child_process").spawn;readline=req("readline");
-     var root=path.join(os.homedir(),"Library","Application Support","TomoTrackAI62");
+     var root=path.join(os.homedir(),"Library","Application Support","TomoTrackAI");
      var exe=path.join(root,"engine","TomoPlateTrack","TomoPlateTrack");
      resultFile=path.join(root,"jobs","current-mask-track.json");
      if(!fs.existsSync(exe))throw Error("Falta el motor local. Volvé a ejecutar Instalar_TomoTrackAI.command.");
@@ -202,6 +204,7 @@ async function startSession(){
  job.mode=el("workMode").value;
  trackCompleted=false;
  stabilized=false;
+ pinEditing=false;
  populateSource();
  job.confidence_threshold=0.24;
  job.tracking_model="similarity";
@@ -244,7 +247,10 @@ async function track(continuous){
      if(r.needs_correction){
        if(inStabMode()){
          await bridge("gotoLast",[resultFile]);
-         status("PlateTrack perdió confianza en cuadro "+r.frame+". Mové las cuatro esquinas de la máscara para que coincidan con el MISMO fondo y pulsá Fijar 4 puntos. Los cuadros sin referencia se indicarán como interpolados.");
+         await bridge("prepareCameraPins",[resultFile]);
+         pinEditing=true;controls();
+         status("Referencia perdida en cuadro "+r.frame+
+          ". Abrí CONTROLES DE EFECTOS de la capa original: TomoTrackAI • 1, 2, 3 y 4. Arrastrá las cruces en el visor hasta las MISMAS esquinas físicas del fondo; después pulsá APLICAR CORRECCIÓN. Si no se ven las cruces, seleccioná cada Punto de control desde Controles de efectos.");
        }else{
          status("El objeto perdió confianza. Ajustá la máscara en el fotograma visible y pulsá Corregir.");
        }
@@ -277,17 +283,20 @@ async function correct(){
  lock(true);
  try{
    await verifyBridge();
-   var c=await bridge("correction",[]);
+   var c=await bridge(inStabMode()?"readCameraPins":"correction",
+                        inStabMode()?[resultFile]:[]);
    var result=await rpc({cmd:"reseed",source_seconds:c.source_seconds,
                           bbox:c.bbox,mask_shape:c.mask_shape});
    await rpc({cmd:"snapshot",output:resultFile});
    if(inStabMode()){
+     await bridge("clearCameraPins",[]);
+     pinEditing=false;
      trackCompleted=false;stabilized=false;
      el("quality").textContent="Pin manual en cuadro "+result.pin_frame+
       " · "+result.manual_interpolated+" cuadros interpolados sin medición · verificá el resultado.";
      status("Corrección de cámara fijada en cuadro "+result.pin_frame+
        ". PlateTrack suavizó el enlace desde cuadro "+result.blend_start+
-       ". Pulsá Continuar análisis. Revisá visualmente los fotogramas interpolados antes de exportar.");
+       ". Pulsá CONTINUAR ANÁLISIS; revisá los cuadros interpolados antes de exportar.");
    }else{
      await bridge("rewind",[resultFile]);
      await bridge("applyProgress",[resultFile]);
@@ -335,6 +344,12 @@ el("start").onclick=function(){track(true);};
 el("single").onclick=function(){track(false);};
 el("pause").onclick=function(){stopping=true;status("Pausando al terminar el fotograma actual...");};
 el("correct").onclick=correct;
+el("showPins").onclick=function(){
+ if(!pinEditing||busy)return;
+ bridge("prepareCameraPins",[resultFile]).then(function(){
+   status("Controles listos. En CONTROLES DE EFECTOS seleccioná cualquiera de los cuatro Puntos de control y mové su cruz en el visor. Mostrar 4 puntos no borra los ajustes que ya hiciste.");
+ }).catch(function(e){status("Error al mostrar puntos: "+e.message);});
+};
 el("null").onclick=nullFromMask;
 el("stabilize").onclick=stabilizeCamera;
 el("stabStrength").oninput=function(){el("stabStrengthText").textContent=this.value+"%";};
@@ -347,11 +362,14 @@ el("modeStabilize").onclick=function(){
  el("workMode").value="stabilize";updateMode();
 };
 el("new").onclick=function(){
- if(busy)return;job=null;hasData=false;trackCompleted=false;stabilized=false;
+ if(busy)return;
+ if(pinEditing){bridge("clearCameraPins",[]).catch(function(){});}
+ job=null;hasData=false;trackCompleted=false;stabilized=false;pinEditing=false;
  el("count").textContent="0 cuadros";el("bar").value=0;
  el("quality").textContent="Confianza y referencias aparecerán durante el análisis.";
  el("quality").setAttribute("data-tone","");
  populateSource();
+ el("showPins").hidden=true;
  status("Nueva sesión: dibujá una máscara nueva o elegí otra capa.");
  controls();
 };
