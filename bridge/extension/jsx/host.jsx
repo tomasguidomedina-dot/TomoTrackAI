@@ -60,6 +60,58 @@ function locate(d){
     return z;
 }
 function clearKeys(prop){for(var k=prop.numKeys;k>=1;k--)prop.removeKey(k);}
+/* Acceso unico: se invoca desde la ventana TomoTrackAI.
+   Prepara el efecto nativo automaticamente en la capa elegida. */
+tomoBridge.prepare=function(){var undo=false;try{
+    var c=comp(),s=c.selectedLayers;
+    if(s.length!==1)throw Error("Seleccioná exactamente una capa de video en la línea de tiempo.");
+    var l=s[0];
+    if(!(l instanceof AVLayer)||!l.hasVideo)
+       throw Error("La capa elegida no es una capa de video.");
+    if(!(l.source instanceof FootageItem)||!(l.source.file instanceof File)||
+       !l.source.file.exists)
+       throw Error("Por ahora seleccioná un video de archivo (no una precomposición).");
+    if(l.timeRemapEnabled||Math.abs(l.stretch-100)>.01||l.threeDLayer)
+       throw Error("Usá una capa 2D sin remapeo temporal ni cambio de velocidad.");
+    var effect=fx(l),added=false;
+    if(!effect){
+       app.beginUndoGroup("TomoTrackAI - Preparar selección");undo=true;
+       var parade=l.property("ADBE Effect Parade");
+       if(!parade||!parade.canAddProperty(MATCH))
+           throw Error("No encuentro el componente nativo TomoTrack ROI Select. Reinstalá TomoTrackAI.");
+       effect=parade.addProperty(MATCH);
+       if(!effect)throw Error("After Effects no pudo añadir el componente de selección.");
+       added=true;
+    }
+    l.selected=true;
+    try{effect.property(1).selected=true;}catch(ignore){}
+    return '{"ok":true,"added":'+(added?"true":"false")+
+           ',"layer_name":'+q(l.name)+
+           ',"width":'+n(effect.property(2).value)+
+           ',"height":'+n(effect.property(3).value)+
+           ',"show":'+(effect.property(4).value?"true":"false")+'}';
+}catch(e){return err(e);}finally{if(undo)app.endUndoGroup();}};
+tomoBridge.region=function(){try{
+    var z=picked();
+    return '{"ok":true,"width":'+n(z.f.property(2).value)+
+           ',"height":'+n(z.f.property(3).value)+
+           ',"show":'+(z.f.property(4).value?"true":"false")+'}';
+}catch(e){return err(e);}};
+tomoBridge.setRegion=function(width,height,show){var undo=false;try{
+    var z=picked(),w=Number(width),h=Number(height);
+    if(!isFinite(w)||!isFinite(h)||w<16||h<16||w>3000||h>3000)
+       throw Error("El ancho y alto del recuadro deben estar entre 16 y 3000 píxeles.");
+    if(z.f.property(2).numKeys||z.f.property(3).numKeys)
+       throw Error("Esta selección ya está animada. Usá Nueva sesión antes de cambiar el tamaño.");
+    app.beginUndoGroup("TomoTrackAI - Ajustar selección");undo=true;
+    z.f.property(2).setValue(w);
+    z.f.property(3).setValue(h);
+    z.f.property(4).setValue(!!show);
+    z.l.selected=true;
+    try{z.f.property(1).selected=true;}catch(ignore){}
+    return '{"ok":true,"width":'+n(w)+',"height":'+n(h)+
+           ',"show":'+(show?"true":"false")+'}';
+}catch(e){return err(e);}finally{if(undo)app.endUndoGroup();}};
 tomoBridge.selection=function(){try{
     var z=picked(),c=z.c,l=z.l;
     if(c.time<l.inPoint||c.time>=l.outPoint)
