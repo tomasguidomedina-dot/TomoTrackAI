@@ -37,17 +37,30 @@ jobs:
           mkdir -p "$DEST/Contents/MacOS" "$DEST/Contents/Resources"
           test -s "$PROFILE/libtomotrack_native.dylib"
           test -s "$PROFILE/tomotrack_native.rsrc"
-          test -s "$PROFILE/tomotrack_native_PkgInfo"
-          test -s "$PROFILE/tomotrack_native_Info.plist"
           cp "$PROFILE/libtomotrack_native.dylib" "$DEST/Contents/MacOS/TomoTrack_Native_Check"
           cp "$PROFILE/tomotrack_native.rsrc" "$DEST/Contents/Resources/TomoTrack_Native_Check.rsrc"
-          cp "$PROFILE/tomotrack_native_PkgInfo" "$DEST/Contents/PkgInfo"
-          cp "$PROFILE/tomotrack_native_Info.plist" "$DEST/Contents/Info.plist"
-          /usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier com.tomomedina.TomoTrackNativeCheck' "$DEST/Contents/Info.plist"
-          /usr/libexec/PlistBuddy -c 'Set :CFBundleExecutable TomoTrack_Native_Check' "$DEST/Contents/Info.plist"
+          # pipl 0.1.1 (crates.io) publishes .rsrc but not these two metadata files.
+          printf 'eFKTFXTC' > "$DEST/Contents/PkgInfo"
+          cat > "$DEST/Contents/Info.plist" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleExecutable</key><string>TomoTrack_Native_Check</string>
+            <key>CFBundleIdentifier</key><string>com.tomomedina.TomoTrackNativeCheck</string>
+            <key>CFBundleName</key><string>TomoTrack Native Check</string>
+            <key>CFBundlePackageType</key><string>eFKT</string>
+            <key>CFBundleSignature</key><string>FXTC</string>
+            <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+            <key>CFBundleVersion</key><string>0.0.1</string>
+            <key>CFBundleShortVersionString</key><string>0.0.1</string>
+            <key>LSMinimumSystemVersion</key><string>12.0</string>
+          </dict>
+          </plist>
+          PLIST
           plutil -lint "$DEST/Contents/Info.plist"
           file "$DEST/Contents/MacOS/TomoTrack_Native_Check"
-          lipo -verify_arch x86_64 "$DEST/Contents/MacOS/TomoTrack_Native_Check"
+          lipo "$DEST/Contents/MacOS/TomoTrack_Native_Check" -verify_arch x86_64
           codesign --force --deep --sign - "$DEST"
           codesign --verify --verbose=2 "$DEST"
           cp scripts/Install_TomoTrack.command dist/

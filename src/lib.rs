@@ -48,7 +48,7 @@ impl AdobePluginGlobal for Plugin {
     }
 
     fn handle_command(
-        &self,
+        &mut self,
         command: ae::Command,
         in_data: ae::InData,
         mut out_data: ae::OutData,
