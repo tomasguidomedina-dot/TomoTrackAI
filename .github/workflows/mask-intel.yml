@@ -1,4 +1,4 @@
-name: TomoTrackAI v0.3.1 - Secuencia de mascara Intel
+name: TomoTrackAI v0.5 PlateTrack Mac Intel
 
 on:
   pull_request:
@@ -16,112 +16,102 @@ jobs:
       MACOSX_DEPLOYMENT_TARGET: "12.0"
     steps:
       - uses: actions/checkout@v4
-
       - name: Python 3.11 Intel
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           architecture: x64
-
-      - name: Verificar interfaz, JSX, manifest e instaladores
+      - name: Validación de panel, ExtendScript e instalador
         shell: bash
         run: |
           set -euo pipefail
           node --check bridge/extension/panel.js
           node --check --input-type=commonjs < bridge/extension/jsx/host.jsx
           node tests/mask-sequence.test.js
+          node tests/null-transform.test.js
           bash -n scripts/Instalar_TomoTrackAI.command scripts/Desinstalar_TomoTrackAI.command
+          python -m py_compile engine/platetrack_engine.py engine/tests_platetrack.py
           python3 - <<'PY'
           import xml.etree.ElementTree as ET
           from pathlib import Path
-          tree=ET.parse('bridge/extension/CSXS/manifest.xml')
-          assert 'com.tomo.trackai3' in tree.getroot().attrib['ExtensionBundleId']
-          host=Path('bridge/extension/jsx/host.jsx').read_text()
-          pane=Path('bridge/extension/panel.js').read_text()
-          html=Path('bridge/extension/index.html').read_text()
-          for method in ('useMask','applyProgress','correction','rewind','makeNull'):
-              assert 'tomoMask.'+method+'=function' in host,method
-          for phrase in ('MaskMode.NONE','ADBE Mask Shape','setValueAtTime'):
-              assert phrase in host,phrase
-          assert 'ROI Select' not in html, 'El panel no debe mencionar el antiguo selector.'
-          for name in ('start','pause','correct','null','bar','boot'):
-              assert 'id="'+name+'"' in html,name
-          for name in ('Instalar_TomoTrackAI.command','Desinstalar_TomoTrackAI.command'):
-              assert Path('scripts',name).exists()
+          h=Path("bridge/extension/jsx/host.jsx").read_text()
+          p=Path("bridge/extension/panel.js").read_text()
+          t=Path("bridge/extension/index.html").read_text()
+          assert ET.parse("bridge/extension/CSXS/manifest.xml").getroot().attrib["ExtensionBundleId"]=="com.tomo.trackai50"
+          assert "platetrack-0.5.0-bridge-20261012" in h and "platetrack-0.5.0-bridge-20261012" in p
+          assert "sample.matrix" in h and "s.scale_factor" in h
+          assert "s.bbox[2]" not in h, "Scale nunca deriva de AABB"
+          assert "TomoPlateTrack" in p and "TomoTrackNano" not in p
+          assert "track_scale" not in p and "track_rotation" not in p
+          for button in ("start","pause","correct","null","bar","boot","previewMode","quality"):
+              assert 'id="'+button+'"' in t,button
+          assert Path("engine/platetrack/tracker.py").is_file()
+          assert Path("engine/platetrack/refine.py").is_file()
+          print("PASS: único motor PlateTrack y matriz compartida con AE")
           PY
-          python -m py_compile engine/nanotrack_engine.py engine/tests.py
-
-      - name: Instalar dependencias NanoTrack y PyInstaller
+      - name: Dependencias CPU (sin ONNX ni modelos)
+        shell: bash
         run: |
-          python -m pip install --disable-pip-version-check --only-binary=:all: \
+          python -m pip install --only-binary=:all: \
             numpy==1.26.4 opencv-contrib-python-headless==4.9.0.80 pyinstaller==6.16.0
-
-      - name: Pruebas reales de seguimiento y correccion de mascara
+      - name: Precisión geométrica y sesión real PlateTrack
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/tomotrack-models"
-          BASE=https://raw.githubusercontent.com/HonglinChu/SiamTrackers/master/NanoTrack/models/nanotrackv2
-          curl -fLsS --retry 3 "$BASE/nanotrack_backbone_sim.onnx" -o "$RUNNER_TEMP/tomotrack-models/nanotrack_backbone_sim.onnx"
-          curl -fLsS --retry 3 "$BASE/nanotrack_head_sim.onnx" -o "$RUNNER_TEMP/tomotrack-models/nanotrack_head_sim.onnx"
-          echo "6e773a364457b78574f9f63a23b0659ee8646f8f  $RUNNER_TEMP/tomotrack-models/nanotrack_backbone_sim.onnx" | shasum -a 1 -c -
-          echo "39f168489671700cf739e402dfc67d41ce648aef  $RUNNER_TEMP/tomotrack-models/nanotrack_head_sim.onnx" | shasum -a 1 -c -
-          TOMOTRACK_MODELS="$RUNNER_TEMP/tomotrack-models" TOMOTRACK_SMOKE_REAL=1 python engine/tests.py
-
-      - name: Compilar NanoTrack autónomo Mac Intel
+          (cd engine && python -m unittest tests_platetrack -v)
+      - name: Compilar motor nativo macOS Intel
         shell: bash
         run: |
           set -euo pipefail
           pyinstaller --noconfirm --clean --onedir --console \
-            --name TomoTrackNano --distpath build-motor --workpath build-py \
-            --specpath build-py engine/nanotrack_engine.py
-          test -x build-motor/TomoTrackNano/TomoTrackNano
-          lipo build-motor/TomoTrackNano/TomoTrackNano -verify_arch x86_64
-
-      - name: Medir arranque real del motor
+            --paths engine --hidden-import platetrack.features \
+            --hidden-import platetrack.lk --hidden-import platetrack.models \
+            --hidden-import platetrack.refine \
+            --name TomoPlateTrack --distpath build-motor \
+            --workpath build-py --specpath build-py engine/platetrack_engine.py
+          test -x build-motor/TomoPlateTrack/TomoPlateTrack
+          lipo build-motor/TomoPlateTrack/TomoPlateTrack -verify_arch x86_64
+      - name: Arranque real binario Intel
         shell: bash
         run: |
           python - <<'PY'
-          import subprocess, time, select, json
-          p=subprocess.Popen(['build-motor/TomoTrackNano/TomoTrackNano'],
-             stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+          import subprocess,time,select,json
+          p=subprocess.Popen(['build-motor/TomoPlateTrack/TomoPlateTrack'],stdin=subprocess.PIPE,
+                             stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
           start=time.monotonic()
           try:
-              ready,_,_=select.select([p.stdout],[],[],40)
-              assert ready, 'NanoTrack no generó respuesta inicial en 40 s'
+              ok,_,_=select.select([p.stdout],[],[],25)
+              assert ok,"PlateTrack no respondió tras 25 segundos"
               msg=json.loads(p.stdout.readline())
               elapsed=time.monotonic()-start
-              print(f'ARRANQUE_REAL_MAC_INTEL: {elapsed:.2f} segundos')
-              assert msg.get('ok') and msg.get('ready'),msg
+              print(f"PLATETRACK_ARRANQUE_MAC_INTEL: {elapsed:.2f} segundos")
+              assert msg.get("ok") and msg.get("ready") and msg.get("engine")=="PlateTrack",msg
               p.stdin.write('{"cmd":"close"}\n');p.stdin.flush()
           finally:
-              p.terminate()
-              try:p.wait(timeout=6)
+              try:p.terminate();p.wait(timeout=5)
               except subprocess.TimeoutExpired:p.kill()
           PY
-
-      - name: Empaquetar SOLO una extensión y un motor
+      - name: Empaquetar extensión CEP y motor único
         shell: bash
         run: |
           set -euo pipefail
-          ROOT=package/TomoTrackAI_v0.3.1_Mac_Intel
+          NAME=TomoTrackAI_v0.5.0_PlateTrack_Mac_Intel
+          ROOT=package/$NAME
           mkdir -p "$ROOT"
-          ditto build-motor/TomoTrackNano "$ROOT/TomoTrackNano"
+          ditto build-motor/TomoPlateTrack "$ROOT/TomoPlateTrack"
           ditto bridge/extension "$ROOT/extension"
           cp scripts/Instalar_TomoTrackAI.command "$ROOT/"
           cp scripts/Desinstalar_TomoTrackAI.command "$ROOT/"
-          cp MASK_V03_STATUS.md "$ROOT/LEEME_PRIMERO.md"
+          cp PLATETRACK_V05_STATUS.md "$ROOT/LEEME_PRIMERO.md"
+          cp PLATETRACK_ATTRIBUTION.md "$ROOT/PLATETRACK_ATTRIBUTION.md"
           chmod +x "$ROOT/"*.command
-          test ! -e "$ROOT/TomoTrack_ROI_Select.plugin"
-          test ! -e "$ROOT/TomoTrack_Native_Check.plugin"
-          test -f "$ROOT/extension/jsx/host.jsx"
-          (cd package && ditto -c -k --sequesterRsrc --keepParent \
-            TomoTrackAI_v0.3.1_Mac_Intel TomoTrackAI_v0.3.1_Mac_Intel.zip)
-
-      - name: Publicar instalador v0.3
+          test ! -e "$ROOT/TomoTrackNano"
+          test ! -e "$ROOT/nanotrack_backbone_sim.onnx"
+          (cd package && ditto -c -k --sequesterRsrc --keepParent "$NAME" "$NAME.zip")
+      - name: Publicar candidato de prueba
         uses: actions/upload-artifact@v4
         with:
-          name: TomoTrackAI_v0.3.1_Mac_Intel
-          path: package/TomoTrackAI_v0.3.1_Mac_Intel.zip
-          if-no-files-found: error
+          name: TomoTrackAI_v0.5.0_PlateTrack_Mac_Intel
+          path: package/TomoTrackAI_v0.5.0_PlateTrack_Mac_Intel.zip
           retention-days: 30
+          if-no-files-found: error
