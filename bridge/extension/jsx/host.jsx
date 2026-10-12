@@ -4,10 +4,10 @@
 var tomoMask = tomoMask || {};
 (function(){
 var TAG="TomoTrackAI - OBJETIVO", state={run:"",lastFrame:-1};
-var BUILD_ID="platetrack-0.5.0-bridge-20261012";
+var BUILD_ID="platetrack-0.6.0-bridge-20261012";
 function json(v){return JSON.stringify(v);}
 function fail(e){return json({ok:false,error:String(e.message||e),bridge_id:BUILD_ID});}
-tomoMask.version=function(){return json({ok:true,version:"0.5.0",bridge_id:BUILD_ID});};
+tomoMask.version=function(){return json({ok:true,version:"0.6.0",bridge_id:BUILD_ID});};
 function comp(){var x=app.project&&app.project.activeItem;if(!(x instanceof CompItem))throw Error("Abrí una composición de After Effects.");return x;}
 function layer(){
  var c=comp(),s=c.selectedLayers;
@@ -199,4 +199,70 @@ tomoMask.makeNull=function(path){var undo=false;try{
  nullL.selected=true;
  return json({ok:true,keyframes:times.length,name:nullL.name,scale:true,rotation:true});
 }catch(e){return fail(e);}finally{if(undo)app.endUndoGroup();}};
+// Estabilización no destructiva del archivo: duplica capa, anima UNA única
+// transformación para compensar la trayectoria PlateTrack del fondo.
+tomoMask.applyStabilization=function(path){var undo=false;try{
+ var d=load(path),r=locate(d),c=r.z.c,source=r.z.l;
+ if(d.tracking_mode!=="stabilize"||!d.stabilization||
+    !d.stabilization.samples||d.stabilization.samples.length<5)
+   throw Error("PlateTrack no ha calculado la estabilización todavía.");
+ if(d.stabilization.samples.length!==d.samples.length)
+   throw Error("La trayectoria estabilizada está incompleta.");
+ if(d.width!==d.source_width||d.height!==d.source_height)
+   throw Error("La estabilización inicial requiere dimensiones del video idénticas a las detectadas por After Effects.");
+ if(source.parent||source.threeDLayer||source.timeRemapEnabled||Math.abs(source.stretch-100)>.001)
+   throw Error("Para estabilizar necesitás una capa 2D sin padre ni remapeo de tiempo.");
+ if(source.source.pixelAspect && Math.abs(source.source.pixelAspect-1)>.001)
+   throw Error("El modo de estabilización requiere píxeles cuadrados.");
+ var tr=source.property("ADBE Transform Group"),
+     anchor=tr.property("ADBE Anchor Point"),pos=tr.property("ADBE Position"),
+     scale=tr.property("ADBE Scale"),rot=tr.property("ADBE Rotate Z"),
+     opacity=tr.property("ADBE Opacity");
+ if(anchor.numKeys||pos.numKeys||scale.numKeys||rot.numKeys||opacity.numKeys)
+   throw Error("Para este primer estabilizador, seleccioná una capa sin keyframes de Transform.");
+ if(anchor.expressionEnabled||pos.expressionEnabled||scale.expressionEnabled||rot.expressionEnabled)
+   throw Error("Desactivá las expresiones de Transform antes de estabilizar.");
+ if(pos.dimensionsSeparated)
+   throw Error("La propiedad Position no puede tener dimensiones separadas.");
+ var a=anchor.value,p=pos.value,sc=scale.value,rotation=rot.value;
+ if(Math.abs(sc[0]-100)>.01||Math.abs(sc[1]-100)>.01||
+    Math.abs(rotation)>.01||Math.abs(opacity.value-100)>.01)
+   throw Error("La capa debe tener Scale 100%, Rotation 0° y Opacity 100%. Podés precomponer primero.");
+ var ox=p[0]-a[0],oy=p[1]-a[1],times=[],positions=[],scales=[],rotations=[];
+ var prev=-1,samples=d.stabilization.samples;
+ for(var i=0;i<samples.length;i++){
+   var sample=samples[i],t=timeOf(d,sample),M=sample.matrix;
+   if(t<0||t>c.duration||t<source.inPoint-0.001||t>source.outPoint+0.001)continue;
+   if(t<=prev+0.0000001)throw Error("Tiempo de estabilización desordenado.");
+   if(!M||M.length!==3)throw Error("Falta la matriz de estabilización.");
+   var factor=Math.sqrt(Number(M[0][0])*Number(M[0][0])+Number(M[1][0])*Number(M[1][0]));
+   var theta=Math.atan2(Number(M[1][0]),Number(M[0][0]))*180/Math.PI;
+   if(!isFinite(factor)||factor<=0||!isFinite(theta))throw Error("Matriz inválida.");
+   times.push(t);
+   positions.push([ox+Number(M[0][2]),oy+Number(M[1][2])]);
+   scales.push([100*factor,100*factor]);
+   rotations.push(theta);
+   prev=t;
+ }
+ if(times.length<5)throw Error("No hay suficientes fotogramas dentro de la composición.");
+ app.beginUndoGroup("TomoTrackAI PlateTrack - Estabilizar cámara");undo=true;
+ var dup=source.duplicate();
+ dup.name="TomoTrackAI · Cámara estabilizada · "+source.name;
+ dup.parent=null;dup.enabled=true;
+ var masks=dup.property("ADBE Mask Parade");
+ if(masks){for(var j=1;j<=masks.numProperties;j++){
+    try{masks.property(j).maskMode=MaskMode.NONE;}catch(ignore){}
+ }}
+ var nt=dup.property("ADBE Transform Group");
+ nt.property("ADBE Anchor Point").setValue([0,0]);
+ nt.property("ADBE Position").setValuesAtTimes(times,positions);
+ nt.property("ADBE Scale").setValuesAtTimes(times,scales);
+ nt.property("ADBE Rotate Z").setValuesAtTimes(times,rotations);
+ source.enabled=false;
+ source.selected=false;dup.selected=true;
+ c.time=times[0];
+ return json({ok:true,keyframes:times.length,layer_name:dup.name,
+              zoom:d.stabilization.zoom,mode:d.stabilization.mode});
+ }catch(e){return fail(e);}finally{if(undo)app.endUndoGroup();}};
+
 })();
