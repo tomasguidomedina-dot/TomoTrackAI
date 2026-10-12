@@ -38,6 +38,17 @@ download_model(){
         echo "  Reutilizado: $name";return 0
      fi
   fi
+  # Si hay modelos ya verificados de v0.2, reutilizarlos sin nueva descarga.
+  local previous
+  previous="$HOME/Library/Application Support/TomoTrackAI2/models/$name"
+  if [[ -s "$previous" ]];then
+     digest="$(shasum -a 1 "$previous" | awk '{print $1}')"
+     if [[ "$digest" == "$expected" ]];then
+       cp "$previous" "$out"
+       echo "  Reutilizado modelo v0.2: $name"
+       return 0
+     fi
+  fi
   rm -f "$tmp"
   curl --fail --location --retry 3 --connect-timeout 20 --max-time 180 \
        --silent --show-error "$MODELS_URL/$name" -o "$tmp"
