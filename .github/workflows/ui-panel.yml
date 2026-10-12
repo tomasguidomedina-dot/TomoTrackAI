@@ -1,0 +1,94 @@
+name: TomoTrackAI v0.5.1 Adobe UI patch
+
+on:
+  pull_request:
+    branches:
+      - feature/platetrack-native-v0.5.0
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  panel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: JS, ExtendScript, and UI selectors
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check bridge/extension/panel.js
+          node --check --input-type=commonjs < bridge/extension/jsx/host.jsx
+          node tests/mask-sequence.test.js
+          node tests/null-transform.test.js
+          bash -n scripts/Instalar_Interfaz_TomoTrackAI.command scripts/Restaurar_Interfaz_TomoTrackAI.command
+          python3 - <<'PY'
+          from html.parser import HTMLParser
+          from pathlib import Path
+          class Parser(HTMLParser):
+              def __init__(self):
+                  super().__init__();self.ids=[];self.select_default={}
+              def handle_starttag(self,tag,attrs):
+                  a=dict(attrs)
+                  if "id" in a:self.ids.append(a["id"])
+                  if tag=="option" and "selected" in a:self.select_default[a.get("value")]=True
+          p=Parser()
+          p.feed(Path("bridge/extension/index.html").read_text())
+          ids=set(p.ids)
+          assert len(ids)==len(p.ids),"IDs duplicados"
+          required={"start","single","pause","correct","null","new","previewMode","bar",
+                    "count","quality","status","bridgeVersion","boot","reconnect",
+                    "sourceLayer","sourceComp","sourceMask","engineState","engineBadge","phaseLabel"}
+          assert required<=ids,required-ids
+          assert p.select_default=={"live":True},"Se modificó el modo de vista previo original"
+          panel=Path("bridge/extension/panel.js").read_text()
+          assert "platetrack-0.5.0-bridge-20261012" in panel
+          assert "TomoPlateTrack" in panel
+          assert "job.confidence_threshold=0.24" in panel
+          assert 'job.tracking_model="similarity"' in panel
+          assert "job.ecc_refine=true" in panel
+          assert "engine/platetrack_engine.py" in [str(x) for x in Path("engine").iterdir()] or Path("engine/platetrack_engine.py").is_file()
+          assert not Path("engine/platetrack_engine_ui.py").exists()
+          print("PASS: selectores únicos, IDs preservados y control PlateTrack intacto")
+          PY
+      - name: Crear parche autocontenido sin binario
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile,ZIP_DEFLATED
+          root=Path("bridge/extension")
+          dest=Path("package/TomoTrackAI_v0.5.1_Interfaz_Adobe_Mac.zip")
+          dest.parent.mkdir(parents=True,exist_ok=True)
+          filenames={
+            "index.html":root/"index.html",
+            "panel.js":root/"panel.js",
+            "Instalar_Interfaz_TomoTrackAI.command":Path("scripts/Instalar_Interfaz_TomoTrackAI.command"),
+            "Restaurar_Interfaz_TomoTrackAI.command":Path("scripts/Restaurar_Interfaz_TomoTrackAI.command"),
+            "LEEME.md":Path("UI_ADOBE_V051.md"),
+          }
+          with ZipFile(dest,"w",ZIP_DEFLATED,compresslevel=9) as z:
+             for out,source in filenames.items():
+                data=source.read_bytes()
+                info=z.open(source.name,"w") if False else None
+                from zipfile import ZipInfo
+                zi=ZipInfo(out)
+                zi.create_system=3
+                zi.external_attr=((0o100755 if out.endswith(".command") else 0o100644)<<16)
+                zi.compress_type=ZIP_DEFLATED
+                z.writestr(zi,data)
+          with ZipFile(dest) as z:
+             assert z.testzip() is None
+             assert sorted(z.namelist())==sorted(filenames)
+          assert dest.stat().st_size<150000,"El parche no debería tener binarios"
+          print("UI-only ZIP:",dest,dest.stat().st_size)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TomoTrackAI_v0.5.1_Interfaz_Adobe_Mac
+          path: package/TomoTrackAI_v0.5.1_Interfaz_Adobe_Mac.zip
+          retention-days: 30
+          if-no-files-found: error
