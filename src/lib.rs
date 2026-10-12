@@ -135,6 +135,7 @@ impl AdobePluginGlobal for Plugin {
                                 p.green += 0.17;
                             }
                         }
+                        _ => return Err(ae::Error::BadCallbackParameter),
                     }
                     Ok(())
                 })?;
