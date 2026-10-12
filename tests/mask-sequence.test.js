@@ -69,7 +69,7 @@ const sandbox = {
 vm.createContext(sandbox);
 vm.runInContext(fs.readFileSync("bridge/extension/jsx/host.jsx", "utf8"), sandbox);
 const version = JSON.parse(sandbox.tomoMask.version());
-assert.strictEqual(version.bridge_id, "platetrack-0.5.0-bridge-20261012");
+assert.strictEqual(version.bridge_id, "platetrack-0.6.0-bridge-20261012");
 const rect = {
   vertices: [[50,50],[90,50],[90,90],[50,90]],
   inTangents: [[0,0],[0,0],[0,0],[0,0]],
