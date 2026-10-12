@@ -55,7 +55,10 @@ function controls(){
   el("pause").disabled=!busy;
   el("correct").disabled=busy||!hasData||inStabMode();
   el("null").disabled=busy||!hasData||inStabMode();
-  el("stabilize").disabled=busy||!hasData||!trackCompleted||stabilized;
+  // No depender del estado local de fin de sesión para habilitar la acción.
+  // El motor PlateTrack valida último frame, confianza y continuidad de muestras.
+  // Una sesión parcial puede pulsarse: devuelve un error claro, no un botón gris.
+  el("stabilize").disabled=busy||!hasData||stabilized||!inStabMode();
   el("new").disabled=busy;
   el("reconnect").disabled=busy||ready;
   el("previewMode").disabled=busy;
@@ -206,6 +209,7 @@ async function startSession(){
  try { r=await rpc({cmd:"init",job:job}); }
  catch(e){job=null;hasData=false;controls();throw e;}
  job.fps=r.fps;
+ job.last_frame=r.last_frame; // Ground truth del motor, no del indicador de progreso.
  hasData=true;
  await snapshot();
  el("count").textContent="1 cuadro";
@@ -243,9 +247,13 @@ async function track(continuous){
        break;
      }
      if(r.ended||!r.new||!r.new.length){
-       trackCompleted=!!r.ended&&!!r.new&&r.new.length>0;
+       // El último lote puede traer CERO cuadros si la sesión ya estaba al final.
+       // Y "ended" por sí solo también puede significar lectura cortada del video.
+       trackCompleted=!!r.ended&&!r.needs_correction&&r.frame>=job.last_frame;
        status(inStabMode()?
-         "Análisis completo: "+r.total+" cuadros. Elegí los parámetros y pulsá Crear capa estabilizada.":
+         (trackCompleted?
+          "Análisis completo: "+r.total+" cuadros. Podés crear la capa estabilizada.":
+          "Análisis detenido antes del último fotograma. Podés pulsar Crear capa estabilizada para conocer el motivo exacto."):
          "Track terminado: "+r.total+" cuadros. Podés crear el Null.");
        break;
      }
@@ -275,8 +283,11 @@ async function correct(){
  finally{lock(false);}
 }
 async function stabilizeCamera(){
- if(busy||!hasData||!trackCompleted||stabilized||!inStabMode())return;
+ if(busy||!hasData||stabilized||!inStabMode())return;
  lock(true);
+ status(trackCompleted?"Validando la trayectoria y preparando estabilización...":
+   "Comprobando si la secuencia terminó correctamente...");
+
  try{
    await verifyBridge();
    var settings={
