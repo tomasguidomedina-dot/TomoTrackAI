@@ -179,6 +179,8 @@ class Engine:
         self.index=0;self.end_index=0
         self.global_scale=1.;self.global_rotation=0.
         self.base_box=None
+        self.stabilization=None
+        self.tracking_mode="object"
     def close(self):
         if self.cap is not None:self.cap.release()
         self.cap=None;self.tracker=None
@@ -199,6 +201,10 @@ class Engine:
     def init(self,job):
         self.close()
         self.samples=[];self.anchors=[];self.metadata=None
+        self.stabilization=None
+        self.tracking_mode=job.get("mode","object")
+        if self.tracking_mode not in ("object","stabilize"):
+            raise ValueError("Modo de sesión inválido.")
         self.cv2.setNumThreads(2)
         src=Path(job["video"])
         if not src.is_file():raise ValueError("El video no existe: "+str(src))
@@ -248,6 +254,7 @@ class Engine:
                  needs_correction=local["needs_correction"],points=local["points"],
                  ecc_score=local["ecc_score"],quad=coords,model=self.model)
         self.samples.append(rec)
+        self.stabilization=None  # cualquier cambio de muestras invalida estabilización previa
         return rec
 
     def step(self,count=1):
@@ -282,6 +289,31 @@ class Engine:
                                  scale_factor=self.global_scale,rotation_deg=self.global_rotation))
         return dict(corrected=self.record(self.tracker.result()),total=len(self.samples))
 
+    def stabilize(self,cmd):
+        from camera_stabilization import stabilize_samples
+        if self.tracker is None or self.metadata is None:
+            raise ValueError("No hay trayectoria de cámara para estabilizar.")
+        if self.tracking_mode!="stabilize":
+            raise ValueError("Iniciá la sesión en modo Estabilizar cámara.")
+        if self.index<self.end_index:
+            raise ValueError("Finalizá el análisis de la secuencia antes de estabilizar.")
+        anchors=[]
+        for a in self.anchors:
+            copy=dict(a)
+            copy["source_width"]=self.source_width
+            copy["source_height"]=self.source_height
+            anchors.append(copy)
+        self.stabilization=stabilize_samples(self.samples,anchors,self.width,self.height,
+            mode=cmd.get("mode","smooth"),
+            strength=finite(cmd.get("strength",1.),"intensidad"),
+            radius=int(cmd.get("radius",15)),
+            auto_crop=bool(cmd.get("auto_crop",True)),
+            min_confidence=float(cmd.get("min_confidence",.35)))
+        return dict(frames=len(self.stabilization["samples"]),
+                    zoom=self.stabilization["zoom"],
+                    weakest=self.stabilization["min_confidence"],
+                    mode=self.stabilization["mode"])
+
     def snapshot(self,out):
         if not self.metadata:raise ValueError("No existe sesión.")
         target=Path(out);target.parent.mkdir(parents=True,exist_ok=True)
@@ -290,6 +322,7 @@ class Engine:
                      layer_name=self.metadata["layer_name"],layer_start=self.metadata["layer_start"],
                      mask_name=self.metadata["mask_name"],run_id=self.metadata["run_id"],
                      track_scale=True,track_rotation=True,
+                     tracking_mode=self.tracking_mode,stabilization=self.stabilization,
                      anchors=self.anchors,source_width=self.source_width,source_height=self.source_height,
                      width=self.width,height=self.height,fps=self.fps,samples=self.samples)
         tmp=target.with_suffix(".tmp")
@@ -315,6 +348,7 @@ def serve():
                 elif op=="step":r=engine.step(cmd.get("count",1))
                 elif op=="reseed":r=engine.reseed(cmd)
                 elif op=="snapshot":r=engine.snapshot(cmd["output"])
+                elif op=="stabilize":r=engine.stabilize(cmd)
                 elif op=="close":emit(ok=True,closed=True);break
                 else:raise ValueError("Comando desconocido: "+str(op))
                 emit(ok=True,**r)
