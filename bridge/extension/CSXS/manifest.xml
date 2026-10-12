@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ExtensionManifest xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ExtensionBundleId="com.tomo.trackai41" ExtensionBundleVersion="0.4.1" Version="7.0">
+  <ExtensionList><Extension Id="com.tomo.trackai41.panel" Version="0.4.1"/></ExtensionList>
+  <ExecutionEnvironment>
+    <HostList><Host Name="AEFT" Version="[24.0,24.9]"/></HostList>
+    <LocaleList><Locale Code="All"/></LocaleList>
+    <RequiredRuntimeList><RequiredRuntime Name="CSXS" Version="11.0"/></RequiredRuntimeList>
+  </ExecutionEnvironment>
+  <DispatchInfoList><Extension Id="com.tomo.trackai41.panel"><DispatchInfo>
+    <Resources><MainPath>./index.html</MainPath><ScriptPath>./jsx/host.jsx</ScriptPath>
+      <CEFCommandLine><Parameter>--enable-nodejs</Parameter><Parameter>--mixed-context</Parameter></CEFCommandLine>
+    </Resources>
+    <Lifecycle><AutoVisible>true</AutoVisible></Lifecycle>
+    <UI><Type>Panel</Type><Menu>TomoTrackAI</Menu>
+       <Geometry><Size><Width>325</Width><Height>350</Height></Size><MinSize><Width>300</Width><Height>310</Height></MinSize></Geometry>
+    </UI>
+  </DispatchInfo></Extension></DispatchInfoList>
+</ExtensionManifest>

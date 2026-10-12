@@ -1,0 +1,23 @@
+name: Rotation anti-jitter and engine regression
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  rotation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install numpy==1.26.4 opencv-contrib-python-headless==4.9.0.80
+      - name: Sin giro accidental y giro real
+        run: cd engine && python -m unittest tests_rotation -v
+      - name: Pruebas base sin dependencias externas
+        run: cd engine && python -m unittest tests.TestCore -v
+      - name: Sintaxis
+        run: python -m py_compile engine/rotation_estimator.py engine/nanotrack_engine.py engine/tests_rotation.py
