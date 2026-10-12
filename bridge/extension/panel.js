@@ -53,8 +53,8 @@ function updateMode(){
  controls();
 }
 function controls(){
-  el("start").disabled=busy;
-  el("single").disabled=busy;
+  el("start").disabled=busy||pinEditing;
+  el("single").disabled=busy||pinEditing;
   el("pause").disabled=!busy;
   el("correct").disabled=busy||!hasData||(inStabMode()&&!pinEditing);
   el("null").disabled=busy||!hasData||inStabMode();
@@ -221,7 +221,7 @@ async function startSession(){
  return r;
 }
 async function track(continuous){
- if(busy)return;
+ if(busy||pinEditing)return;
  lock(true);stopping=false;
  try{
    await verifyBridge();
@@ -247,8 +247,8 @@ async function track(continuous){
      if(r.needs_correction){
        if(inStabMode()){
          await bridge("gotoLast",[resultFile]);
-         await bridge("prepareCameraPins",[resultFile]);
          pinEditing=true;controls();
+         await bridge("prepareCameraPins",[resultFile]);
          status("Referencia perdida en cuadro "+r.frame+
           ". Abrí CONTROLES DE EFECTOS de la capa original: TomoTrackAI • 1, 2, 3 y 4. Arrastrá las cruces en el visor hasta las MISMAS esquinas físicas del fondo; después pulsá APLICAR CORRECCIÓN. Si no se ven las cruces, seleccioná cada Punto de control desde Controles de efectos.");
        }else{
