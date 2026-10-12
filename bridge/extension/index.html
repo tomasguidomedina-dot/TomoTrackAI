@@ -1,55 +1,179 @@
-<!doctype html><html lang="es"><head><meta charset="UTF-8"><title>TomoTrackAI</title>
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TomoTrackAI</title>
 <style>
+/* TomoTrackAI — Adobe-inspired panel, v0.5.1.
+   Presentational layer ONLY: no changes to the proven PlateTrack engine. */
+:root {
+  color-scheme:dark;
+  --bg:#232323;
+  --field:#303030;
+  --field-hover:#383838;
+  --line:#424242;
+  --line-soft:#363636;
+  --fg:#dddddd;
+  --muted:#a0a0a0;
+  --quiet:#797979;
+  --accent:#3789c8;
+  --accent-hover:#489bd9;
+  --good:#77ba98;
+  --warn:#d6ae64;
+  --bad:#d78383;
+}
 *{box-sizing:border-box}
-html,body{margin:0;min-width:285px;background:#1d2229;color:#e4ebf0;font:13px -apple-system,BlinkMacSystemFont,Arial,sans-serif}
-main{padding:16px}
-header{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #384451;padding:0 0 12px}
-header strong{font-size:18px;font-weight:750}
-header small{font-size:10px;letter-spacing:.5px;color:#92b9c1}
-h2{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.1px;color:#88a6af;margin:18px 0 9px}
-p{margin:8px 0 10px;color:#aabac4;font-size:12px;line-height:1.5}
-kbd{font-family:inherit;border:1px solid #57616c;padding:1px 4px;border-radius:3px;color:#e1edf0}
-button{background:#343e49;border:1px solid #596b78;color:#f6f9fa;border-radius:7px;font:inherit;padding:11px 8px;cursor:pointer;width:100%}
-button.primary{background:#0a7581;border-color:#1497a4;font-weight:700}
-button:hover:not(:disabled){filter:brightness(1.1)}
-button:disabled{opacity:.42;cursor:not-allowed}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0}
-#boot{font-size:11px;color:#92b9c1}
-#status{min-height:65px;border-radius:6px;padding:12px;background:#151a20;line-height:1.5;color:#c8e0e5;white-space:pre-wrap}
-#count{color:#86dfcf;font-size:11px;font-variant-numeric:tabular-nums}
-progress{width:100%;accent-color:#29c5b9;height:9px;margin:10px 0 5px}
-.note{padding:8px 10px;background:#282f39;border-left:2px solid #578c98;border-radius:4px}
-label{display:block;color:#c8d5da;font-size:12px;margin:8px 0}
-input[type="checkbox"]{accent-color:#26bbb4;vertical-align:middle}
-select{width:100%;background:#313a45;color:#e7f0f5;border:1px solid #637381;border-radius:6px;padding:9px;margin:5px 0 9px;font:inherit}
-#quality{color:#85d6cf;line-height:1.45;font-size:11px;margin:7px 0}
-footer{display:flex;justify-content:space-between;align-items:center;padding-top:10px}
-footer button{width:auto;padding:5px 9px;font-size:11px}
-</style></head><body><main>
-<header><strong>TomoTrackAI</strong><small>v0.5.0 · PLATETRACK</small></header>
-<h2>01 · Dibujá tu máscara</h2>
-<p>Seleccioná el video en la línea de tiempo. Usá la <strong>Pluma</strong> (<kbd>G</kbd>) para dibujar una <strong>máscara cerrada</strong> alrededor del objeto. No necesitás agregar efectos.</p>
-<p class="note">El programa conserva el video completo: la máscara solo indica qué seguir.</p>
-<h2>02 · Motor geométrico PlateTrack</h2>
-<p>Posición, escala uniforme y rotación calculadas desde <strong>una sola matriz 2D</strong>. Seguimiento local OpenCV sin modelos ONNX. ECC revalida la trayectoria contra el cuadro de referencia.</p>
-<h2>03 · Seguimiento y visor</h2>
-<label for="previewMode">Actualización de previsualización</label>
-<select id="previewMode">
-<option value="live">Supervisar — 1 fotograma, refresco pausado</option>
-<option value="balanced">Equilibrado — 2 fotogramas por lote</option>
-<option value="fast">Rápido — 4 fotogramas por lote</option>
-</select>
-<button id="start" class="primary">▶ Iniciar / continuar tracking</button>
-<div class="grid"><button id="single">Avanzar 1 cuadro</button><button id="pause" disabled>⏸ Pausar</button></div>
-<progress id="bar" max="100" value="0"></progress>
-<div id="count">0 cuadros</div>
-<div id="quality">Confianza y giro: esperando seguimiento.</div>
-<h2>04 · Corregir y exportar</h2>
-<p>Ante pérdida de confianza: <strong>Pausar</strong>, modificar máscara en el fotograma visible, <strong>Aplicar corrección</strong> y continuar.</p>
-<p class="note">Precisión prioritaria: las correcciones reanclan PlateTrack. Sin modelos descargados y sin red. El visor de AE puede dibujar con retraso.</p>
-<div class="grid"><button id="correct" disabled>↺ Aplicar corrección</button><button id="null" disabled>◇ Crear Null</button></div>
-<button id="new">Nueva sesión</button>
-<h2>Estado</h2><div id="status">Preparando motor PlateTrack...</div>
-<div id="bridgeVersion" style="font-size:11px;color:#93b6c0;margin:7px 0">Comprobando puente de After Effects...</div>
-<footer><span id="boot">Comprobando inicio...</span><button id="reconnect">Reconectar</button></footer>
-</main><script src="./panel.js"></script></body></html>
+html,body{margin:0;min-width:294px;min-height:100%;background:var(--bg);color:var(--fg);
+  font:12px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif}
+body{overflow-x:hidden}
+button,select{font:inherit}
+button:focus-visible,select:focus-visible,summary:focus-visible{outline:2px solid #8ac6ed;outline-offset:2px}
+main{padding:0 14px 10px;max-width:720px;margin:auto}
+header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:17px 0 13px;
+  border-bottom:1px solid var(--line)}
+.brand{display:flex;flex-direction:column;min-width:0;line-height:1.25}
+.wordmark{font-size:18px;font-weight:680;letter-spacing:-.55px;white-space:nowrap;color:#f1f1f1}
+.wordmark .ai{color:#78b5de;font-weight:770}
+.subbrand{font-size:10px;color:var(--quiet);letter-spacing:.7px;margin-top:3px;text-transform:uppercase}
+.engine{display:flex;align-items:center;gap:6px;white-space:nowrap;min-width:0;font-size:10px;color:var(--muted)}
+.engine i{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--warn);flex:none}
+.engine[data-state="ready"] i,.engine[data-state="done"] i{background:var(--good)}
+.engine[data-state="tracking"] i{background:var(--accent)}
+.engine[data-state="error"] i{background:var(--bad)}
+.engine[data-state="paused"] i{background:var(--warn)}
+.engine #engineState{overflow:hidden;text-overflow:ellipsis;max-width:90px}
+section{padding:12px 0 13px;border-bottom:1px solid var(--line-soft)}
+.sectionline{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:9px}
+h2{margin:0;font-size:10px;line-height:1.3;letter-spacing:1.15px;text-transform:uppercase;
+  font-weight:700;color:#a6a6a6}
+.mini{font-size:10px;color:var(--quiet)}
+.source{display:grid;grid-template-columns:42px minmax(0,1fr);row-gap:5px;column-gap:8px}
+.source-label{color:var(--quiet);font-size:11px}
+.source-value{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:#cdcdcd;min-width:0;font-size:11px}
+.source-value.placeholder{color:var(--muted);white-space:normal}
+button{border:1px solid #555;background:var(--field);color:#dcdcdc;border-radius:3px;
+  padding:7px 9px;min-height:30px;cursor:pointer;transition:background .11s,border-color .11s}
+button:hover:not(:disabled){background:var(--field-hover);border-color:#686868}
+button:active:not(:disabled){background:#454545}
+button:disabled{opacity:.36;cursor:default}
+button.primary{background:var(--accent);border-color:#509ccf;color:white;font-weight:600;min-width:0}
+button.primary:hover:not(:disabled){background:var(--accent-hover);border-color:#70b5e5}
+button.secondary{background:var(--field)}
+button.subtle{background:transparent;border-color:transparent;color:var(--muted)}
+button.subtle:hover:not(:disabled){background:#303030;color:var(--fg);border-color:transparent}
+.controlrow{display:grid;grid-template-columns:minmax(0,1fr) 86px;gap:6px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.actionrow{margin-top:7px}
+#start{font-size:12px}
+#single{width:100%}
+#bar{display:block;width:100%;height:4px;margin:11px 0 7px;
+  accent-color:var(--accent);appearance:none;-webkit-appearance:none;border:0;border-radius:2px;background:#3a3a3a}
+#bar::-webkit-progress-bar{background:#3a3a3a;border-radius:2px}
+#bar::-webkit-progress-value{background:var(--accent);border-radius:2px;transition:width .12s}
+.statrow{display:flex;align-items:center;justify-content:space-between;gap:6px}
+#count{color:#b3b3b3;font-size:10px;font-variant-numeric:tabular-nums}
+#quality{font-size:11px;color:#acb5b9;min-height:16px;line-height:1.4;word-break:normal}
+#quality[data-tone="low"]{color:var(--warn)}
+#quality[data-tone="high"]{color:var(--good)}
+.helper{font-size:11px;color:var(--muted);margin:0 0 9px}
+#new{display:block;margin:8px auto 0;width:auto;font-size:11px;padding:5px 9px;min-height:25px}
+.statuslabel{font-size:10px;color:var(--quiet);margin:0 0 6px}
+#status{font-size:11px;color:#c7c7c7;line-height:1.45;min-height:34px;
+  white-space:pre-wrap;overflow-wrap:anywhere}
+#status[data-tone="error"]{color:var(--bad)}
+#status[data-tone="warning"]{color:var(--warn)}
+#status[data-tone="success"]{color:var(--good)}
+details{border-bottom:1px solid var(--line-soft);padding:10px 0 12px}
+summary{font-size:11px;list-style:none;cursor:pointer;color:#a7a7a7;user-select:none;
+ display:flex;justify-content:space-between;align-items:center;gap:8px}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"⌄";font-size:15px;line-height:10px;color:var(--quiet);transform:rotate(-90deg);transition:transform .15s}
+details[open] summary::after{transform:rotate(0deg)}
+.settings{padding:12px 0 2px}
+.fieldrow{display:grid;grid-template-columns:92px minmax(0,1fr);align-items:center;gap:8px;margin:0 0 8px}
+.fieldrow label{font-size:11px;color:var(--muted)}
+select{background:#2b2b2b;border:1px solid #555;border-radius:2px;color:#dedede;
+  padding:5px 7px;width:100%;min-width:0;min-height:27px;cursor:pointer}
+.staticvalue{font-size:11px;color:#aaa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+footer{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 0 0;color:var(--quiet)}
+#boot{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px}
+#reconnect{flex:none;min-height:24px;padding:3px 7px;font-size:10px}
+#bridgeVersion{font-size:10px;color:var(--quiet);margin-top:4px}
+@media(max-width:325px){
+  main{padding-left:10px;padding-right:10px}
+  .wordmark{font-size:17px}
+  .controlrow{grid-template-columns:minmax(0,1fr) 76px}
+  .fieldrow{grid-template-columns:84px minmax(0,1fr)}
+}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="brand">
+      <div class="wordmark">TomoTrack<span class="ai">AI</span></div>
+      <div class="subbrand">PlateTrack Engine <span aria-hidden="true">·</span> v0.5.1 UI</div>
+    </div>
+    <div id="engineBadge" class="engine" data-state="loading" title="Estado del motor local">
+      <i aria-hidden="true"></i><span id="engineState">Iniciando</span>
+    </div>
+  </header>
+
+  <section aria-labelledby="sourceTitle">
+    <div class="sectionline"><h2 id="sourceTitle">Objetivo</h2><span class="mini">Máscara nativa AE</span></div>
+    <div class="source">
+      <span class="source-label">Capa</span><span class="source-value placeholder" id="sourceLayer">Seleccioná un video y dibujá una máscara cerrada (G).</span>
+      <span class="source-label">Comp.</span><span class="source-value" id="sourceComp">—</span>
+      <span class="source-label">Máscara</span><span class="source-value" id="sourceMask">—</span>
+    </div>
+  </section>
+
+  <section aria-labelledby="trackingTitle">
+    <div class="sectionline"><h2 id="trackingTitle">Seguimiento</h2><span class="mini" id="phaseLabel">Listo para analizar</span></div>
+    <div class="controlrow">
+      <button id="start" class="primary">▶ Iniciar tracking</button>
+      <button id="pause" class="secondary" disabled>⏸ Pausar</button>
+    </div>
+    <div class="grid actionrow">
+      <button id="single">Avanzar 1 cuadro</button>
+      <button id="correct" disabled>Corregir máscara</button>
+    </div>
+    <progress id="bar" max="100" value="0" aria-label="Progreso del tracking"></progress>
+    <div class="statrow"><span class="mini">Progreso</span><span id="count">0 cuadros</span></div>
+    <div id="quality" aria-live="polite">Confianza y referencias aparecerán durante el análisis.</div>
+  </section>
+
+  <section aria-labelledby="exportTitle">
+    <div class="sectionline"><h2 id="exportTitle">Resultado</h2><span class="mini">Position · Scale · Rotation</span></div>
+    <button id="null" style="width:100%" disabled>◇ Crear Null de tracking</button>
+    <button id="new" class="subtle">↺ Nueva sesión</button>
+  </section>
+
+  <section aria-labelledby="statusTitle">
+    <div class="sectionline"><h2 id="statusTitle">Actividad</h2><span class="mini">Local · Sin Internet</span></div>
+    <div id="status" role="status" aria-live="polite">Preparando motor PlateTrack...</div>
+  </section>
+
+  <details id="advanced">
+    <summary>Ajustes avanzados</summary>
+    <div class="settings">
+      <div class="fieldrow">
+        <label for="previewMode">Vista previa</label>
+        <select id="previewMode">
+          <option value="live">Supervisar · 1 cuadro</option>
+          <option value="balanced" selected>Equilibrada · 2 cuadros</option>
+          <option value="fast">Rápida · 4 cuadros</option>
+        </select>
+      </div>
+      <div class="fieldrow"><span class="source-label">Modelo</span><span class="staticvalue">Similitud 2D</span></div>
+      <div class="fieldrow"><span class="source-label">Refinamiento</span><span class="staticvalue">ECC activo</span></div>
+      <div class="fieldrow"><span class="source-label">Motor</span><span class="staticvalue">PlateTrack · OpenCV CPU</span></div>
+    </div>
+  </details>
+  <footer><span id="boot">Comprobando inicio...</span><button id="reconnect" class="subtle">Reconectar</button></footer>
+  <div id="bridgeVersion">Verificando conexión con After Effects...</div>
+</main>
+<script src="./panel.js"></script>
+</body>
+</html>
