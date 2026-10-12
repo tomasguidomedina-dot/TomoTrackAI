@@ -1,21 +1,47 @@
 <!DOCTYPE html>
-<html lang="es"><head><meta charset="UTF-8"><title>TomoTrack AI 2</title>
+<html lang="es"><head><meta charset="UTF-8">
+<title>TomoTrackAI</title>
 <style>
-*{box-sizing:border-box}body{background:#202329;color:#f2f4f6;font:13px -apple-system,Arial,sans-serif;margin:0;padding:15px}
-header{font-size:17px;font-weight:700;margin-bottom:5px}p{font-size:12px;color:#a4adb8;line-height:1.4}
-button{border:1px solid #535d69;background:#30363f;border-radius:7px;color:white;padding:11px 9px;cursor:pointer;width:100%;text-align:center;font-size:12px}
-button.primary{background:#0a6c7b;border-color:#0c91a5;font-weight:bold}
-button:disabled{opacity:.4}.grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin:9px 0}
-hr{border:0;border-top:1px solid #424751;margin:13px 0}
-#status{line-height:1.4;min-height:57px;white-space:pre-wrap;padding-top:5px;color:#b8d6df}
-#count{color:#86e0d2;font-size:11px}
+*{box-sizing:border-box}
+body{background:#1e2229;color:#ecf1f5;font:13px -apple-system,BlinkMacSystemFont,Arial,sans-serif;margin:0;padding:14px;min-width:290px}
+header{display:flex;justify-content:space-between;align-items:center;font-weight:700;font-size:18px;margin:0 0 6px}
+small{font-size:10px;color:#9ba9b3;font-weight:500}
+p{font-size:12px;color:#aab4bd;line-height:1.5;margin:6px 0 12px}
+h3{font-size:10px;letter-spacing:1.1px;color:#8dabb7;text-transform:uppercase;margin:15px 0 9px}
+button{border:1px solid #515c68;background:#2c333d;color:#fff;border-radius:6px;padding:10px 7px;width:100%;cursor:pointer;font:inherit;text-align:center}
+button:hover:not(:disabled){border-color:#7fbccb}
+button:disabled{opacity:.38;cursor:default}
+button.primary{background:#127b86;border-color:#168f9c;font-weight:600;padding:12px}
+button.secondary{background:#303842}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin:7px 0}
+input[type=number]{width:100%;padding:8px 6px;background:#141b21;color:#eaf6f8;border:1px solid #56616e;border-radius:5px;font-size:12px}
+.inputs{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+label{font-size:11px;color:#adbcc4;display:block;line-height:1.7}
+input[type=checkbox]{accent-color:#1695a4;vertical-align:middle}
+.row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+#status{color:#c3dfe6;white-space:pre-wrap;line-height:1.4;min-height:46px;padding:12px;background:#151b21;border-radius:6px}
+#count{font-variant-numeric:tabular-nums;color:#80dad0;font-size:11px}
+hr{border:none;border-top:1px solid #38414c;margin:14px 0}
 </style></head><body>
-<header>TomoTrack AI <small style="color:#69c5d3;font-size:11px">v0.2</small></header>
-<p>Seleccioná tu video con el efecto nativo <b>TomoTrack ROI Select</b> y ubicá el recuadro.</p>
-<button id="start" class="primary">▶ Analizar hacia adelante</button>
-<div class="grid"><button id="step">Un fotograma</button><button id="stop" disabled>■ Detener</button></div>
-<div class="grid"><button id="correct">↺ Corregir aquí</button><button id="null">Crear Null</button></div>
+<header>TomoTrackAI <small>v0.2.1 · Mac Intel</small></header>
+<p>Un solo panel para seleccionar, seguir y exportar el movimiento.</p>
+<h3>01 · Elegir objetivo</h3>
+<button id="prepare" class="secondary">◎ Preparar objetivo en la capa elegida</button>
+<p>Se añade el control nativo automáticamente. Arrastrá el punto sobre el objeto directamente en el visor de composición.</p>
+<div class="inputs">
+ <label>Ancho de selección (px)<input id="roiW" type="number" min="16" max="3000" step="1" value="160"></label>
+ <label>Alto de selección (px)<input id="roiH" type="number" min="16" max="3000" step="1" value="120"></label>
+</div>
+<div class="row" style="margin:9px 0">
+  <label><input id="roiShow" type="checkbox" checked> Ver recuadro</label>
+  <button id="region" style="width:45%">Aplicar tamaño</button>
+</div>
+<h3>02 · Seguimiento</h3>
+<button id="start" class="primary" disabled>▶ Analizar hacia adelante</button>
+<div class="grid"><button id="step" disabled>Un fotograma</button><button id="stop" disabled>■ Detener</button></div>
+<div class="grid"><button id="correct" disabled>↺ Corregir</button><button id="null" disabled>Crear Null</button></div>
 <button id="new">Nueva sesión</button>
-<hr><div id="count">0 cuadros</div><div id="status">Iniciando motor...</div>
-<p>Seguimiento local con NanoTrack V2. La selección y la trayectoria se muestran en AE.</p>
+<hr>
+<div class="row"><strong id="count">0 cuadros</strong><button id="connect" style="width:auto;padding:5px 11px">Reintentar motor</button></div>
+<div id="status" role="status" aria-live="polite">Iniciando NanoTrack...</div>
 <script src="./panel.js"></script></body></html>
