@@ -7,7 +7,7 @@ var req=(window.cep_node&&window.cep_node.require)||window.require||window.nodeR
 var fs,os,path,spawn,readline,proc=null,ready=false,starting=null,queue=[],job=null;
 var resultFile="",busy=false,stopping=false,hasData=false,bootStart=0,clock=null;
 var lastScore=1,trackCompleted=false,stabilized=false;
-var EXPECTED_BRIDGE="platetrack-0.6.0-bridge-20261012",bridgeVerified=false;
+var EXPECTED_BRIDGE="platetrack-0.6.2-bridge-20261012",bridgeVerified=false;
 // Sólo interfaz. No afecta el motor, sus parámetros ni sus keyframes.
 function badge(state,label){
  var node=el("engineBadge");node.setAttribute("data-state",state);
@@ -45,7 +45,8 @@ function updateMode(){
  el("modeHint").textContent=stab?
   "Dibujá una máscara sobre un fondo estático con textura. La cámara se estabiliza a partir de ese movimiento.":
   "Dibujá una máscara cerrada sobre el objeto a seguir.";
- el("correct").hidden=stab; // Las correcciones entre anclas aún no son válidas en estabilización.
+ el("correct").hidden=false;
+ el("correct").textContent=stab?"Fijar 4 puntos del fondo":"Corregir máscara";
  el("single").textContent=stab?"Analizar 1 cuadro":"Avanzar 1 cuadro";
  controls();
 }
@@ -53,7 +54,7 @@ function controls(){
   el("start").disabled=busy;
   el("single").disabled=busy;
   el("pause").disabled=!busy;
-  el("correct").disabled=busy||!hasData||inStabMode();
+  el("correct").disabled=busy||!hasData;
   el("null").disabled=busy||!hasData||inStabMode();
   // No depender del estado local de fin de sesión para habilitar la acción.
   // El motor PlateTrack valida último frame, confianza y continuidad de muestras.
@@ -88,7 +89,7 @@ async function verifyBridge(){
   try{
     var v=await bridge("version",[]);
     if(v.bridge_id!==EXPECTED_BRIDGE)throw Error("Puente "+String(v.version||"?")+
-       " (esperado 0.6).");
+       " (esperado 0.6.2).");
     bridgeVerified=true;
     el("bridgeVersion").textContent="Puente AE: v"+v.version+" verificado";
     return v;
@@ -96,7 +97,7 @@ async function verifyBridge(){
     bridgeVerified=false;
     el("bridgeVersion").textContent="Puente AE: versión sin verificar";
     throw Error("After Effects ejecuta un puente viejo o incompatible. "+
-      "Cerrá completamente AE, reinstalá TomoTrackAI v0.6 y reabrilo. Detalle: "+e.message);
+      "Cerrá completamente AE, reinstalá TomoTrackAI v0.6.2 y reabrilo. Detalle: "+e.message);
   }
 }
 function disconnect(reason){
@@ -128,7 +129,7 @@ function launch(){
      if(!req)throw Error("El panel no tiene acceso al motor local (Node de CEP).");
      fs=req("fs");os=req("os");path=req("path");
      spawn=req("child_process").spawn;readline=req("readline");
-     var root=path.join(os.homedir(),"Library","Application Support","TomoTrackAI6");
+     var root=path.join(os.homedir(),"Library","Application Support","TomoTrackAI62");
      var exe=path.join(root,"engine","TomoPlateTrack","TomoPlateTrack");
      resultFile=path.join(root,"jobs","current-mask-track.json");
      if(!fs.existsSync(exe))throw Error("Falta el motor local. Volvé a ejecutar Instalar_TomoTrackAI.command.");
@@ -241,9 +242,12 @@ async function track(continuous){
      }
      if(stopping){status("Pausado en el último fotograma solicitado. Esperá a que el visor termine de dibujarlo antes de corregir.");break;}
      if(r.needs_correction){
-       status(inStabMode()?
-         "Se perdió la referencia del fondo. No generaré estabilización con esos fotogramas. Iniciá una sesión con otra zona estática.":
-         "El objeto perdió confianza. Ajustá la máscara en el fotograma visible y pulsá Corregir.");
+       if(inStabMode()){
+         await bridge("gotoLast",[resultFile]);
+         status("PlateTrack perdió confianza en cuadro "+r.frame+". Mové las cuatro esquinas de la máscara para que coincidan con el MISMO fondo y pulsá Fijar 4 puntos. Los cuadros sin referencia se indicarán como interpolados.");
+       }else{
+         status("El objeto perdió confianza. Ajustá la máscara en el fotograma visible y pulsá Corregir.");
+       }
        break;
      }
      if(r.ended||!r.new||!r.new.length){
@@ -274,11 +278,21 @@ async function correct(){
  try{
    await verifyBridge();
    var c=await bridge("correction",[]);
-   await rpc({cmd:"reseed",source_seconds:c.source_seconds,bbox:c.bbox,mask_shape:c.mask_shape});
+   var result=await rpc({cmd:"reseed",source_seconds:c.source_seconds,
+                          bbox:c.bbox,mask_shape:c.mask_shape});
    await rpc({cmd:"snapshot",output:resultFile});
-   await bridge("rewind",[resultFile]);
-   await bridge("applyProgress",[resultFile]);
-   status("Corrección registrada. Pulsá Analizar para continuar desde ese fotograma.");
+   if(inStabMode()){
+     trackCompleted=false;stabilized=false;
+     el("quality").textContent="Pin manual en cuadro "+result.pin_frame+
+      " · "+result.manual_interpolated+" cuadros interpolados sin medición · verificá el resultado.";
+     status("Corrección de cámara fijada en cuadro "+result.pin_frame+
+       ". PlateTrack suavizó el enlace desde cuadro "+result.blend_start+
+       ". Pulsá Continuar análisis. Revisá visualmente los fotogramas interpolados antes de exportar.");
+   }else{
+     await bridge("rewind",[resultFile]);
+     await bridge("applyProgress",[resultFile]);
+     status("Corrección registrada. Pulsá Analizar para continuar desde ese fotograma.");
+   }
  }catch(e){status("Error al corregir: "+e.message);}
  finally{lock(false);}
 }
@@ -301,7 +315,8 @@ async function stabilizeCamera(){
    await rpc({cmd:"snapshot",output:resultFile});
    var applied=await bridge("applyStabilization",[resultFile]);
    stabilized=true;
-   status("Cámara estabilizada: "+applied.keyframes+" fotogramas. Zoom "+Math.round(response.zoom*100)+"%. Capa original conservada.");
+   status("Cámara estabilizada: "+applied.keyframes+" fotogramas. Zoom "+Math.round(response.zoom*100)+
+     "%. "+(response.manual_frames?"ATENCIÓN: "+response.manual_frames+" cuadros interpolados entre pins manuales: inspeccionalos en AE. ":"")+"Capa original conservada.");
  }catch(e){status("Error al estabilizar: "+e.message);}
  finally{lock(false);}
 }
