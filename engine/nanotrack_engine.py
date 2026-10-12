@@ -50,6 +50,9 @@ class Engine:
         self.end_index = 0
         self.bad = 0
         self.threshold = 0.24
+        self.rotation = None
+        self.track_rotation = False
+        self.track_scale = False
 
     def close(self):
         if self.cap is not None:
@@ -70,7 +73,7 @@ class Engine:
         tracker.init(frame, tuple(roi))
         self.tracker = tracker
 
-    def record(self, box, confidence, tracked=True):
+    def record(self, box, confidence, tracked=True, optical=None):
         b = [finite(v, "bbox") for v in box]
         if len(b) != 4 or b[2] < 1 or b[3] < 1:
             raise ValueError("NanoTrack produjo una caja invalida")
@@ -81,6 +84,8 @@ class Engine:
                       bbox=b, cx=round(b[0] + b[2] / 2, 5),
                       cy=round(b[1] + b[3] / 2, 5),
                       confidence=round(score, 5), low_confidence=low)
+        record.update(optical or dict(rotation_deg=0.0, rotation_valid=False,
+                                      rotation_inliers=0, rotation_reason="Rotación desactivada"))
         self.samples.append(record)
         return record
 
@@ -89,6 +94,9 @@ class Engine:
         self.samples = []
         self.metadata = None
         self.anchors = []
+        self.rotation = None
+        self.track_scale = bool(job.get("track_scale", False))
+        self.track_rotation = bool(job.get("track_rotation", False))
         self.cv2.setNumThreads(2)
         root = Path(os.environ.get("TOMOTRACK_MODELS", str(Path.home() /
                        "Library/Application Support/TomoTrackAI3/models")))
@@ -127,7 +135,17 @@ class Engine:
         shape = job.get("mask_shape")
         if not isinstance(shape, dict) or not shape.get("closed") or len(shape.get("vertices", [])) < 3:
             raise ValueError("Falta una máscara poligonal cerrada")
-        self.anchors = [dict(frame=self.index, bbox=dict(job["bbox"]), shape=shape)]
+        self.anchors = [dict(frame=self.index, bbox=dict(job["bbox"]),
+                             shape=shape, rotation_deg=0.0)]
+        if self.track_rotation:
+            # Lazy initialization: preserve verified v0.3.2 startup; geometry
+            # is only allocated AFTER NanoTrack has initialized successfully.
+            from rotation_estimator import StableRotation
+            polygon = [[float(x) * self.width / self.source_width,
+                        float(y) * self.height / self.source_height]
+                       for x, y in shape["vertices"]]
+            self.rotation = StableRotation(self.cv2)
+            self.rotation.start(frame, roi, polygon=polygon)
         self.bad = 0
         first = self.record(roi, 1.0)
         return dict(first=first, fps=self.fps, width=self.width, height=self.height,
@@ -151,7 +169,8 @@ class Engine:
                 score = 1.0 if tracked else 0.0
             if not tracked:
                 bbox = self.samples[-1]["bbox"]
-            records.append(self.record(bbox, score, tracked))
+            optical = self.rotation.step(frame, bbox, score if tracked else 0.0) if self.rotation else None
+            records.append(self.record(bbox, score, tracked, optical=optical))
             if self.bad >= 5:
                 break
         return dict(new=records, total=len(self.samples), frame=self.index,
@@ -174,7 +193,14 @@ class Engine:
         if not isinstance(shape, dict) or len(shape.get("vertices", [])) < 3:
             raise ValueError("No hay contorno corregido")
         self.anchors = [a for a in self.anchors if a["frame"] < index]
-        self.anchors.append(dict(frame=index, bbox=dict(cmd["bbox"]), shape=shape))
+        angle = self.samples[-1]["rotation_deg"] if self.samples else 0.0
+        self.anchors.append(dict(frame=index, bbox=dict(cmd["bbox"]),
+                                 shape=shape, rotation_deg=angle))
+        if self.rotation:
+            polygon = [[float(x) * self.width / self.source_width,
+                        float(y) * self.height / self.source_height]
+                       for x, y in shape["vertices"]]
+            self.rotation.start(frame, box, polygon=polygon, angle=angle)
         self.bad = 0
         return dict(corrected=self.record(box, 1.0), total=len(self.samples))
 
@@ -183,7 +209,7 @@ class Engine:
             raise ValueError("No existe trayectoria")
         target = Path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
-        data = dict(version="0.2", engine="OpenCV NanoTrack V2",
+        data = dict(version="0.4.1", engine="OpenCV NanoTrack V2 + StableRotation",
                     source_file=self.metadata["video"],
                     comp_name=self.metadata["comp_name"],
                     layer_name=self.metadata["layer_name"],
@@ -191,6 +217,7 @@ class Engine:
                     mask_name=self.metadata["mask_name"],
                     run_id=self.metadata["run_id"],
                     anchors=self.anchors,
+                    track_rotation=self.track_rotation, track_scale=self.track_scale,
                     fps=self.fps, width=self.width, height=self.height,
                     source_width=self.source_width, source_height=self.source_height,
                     samples=self.samples)
