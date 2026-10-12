@@ -95,6 +95,17 @@ details[open] summary::after{transform:rotate(0deg)}
 .fieldrow label{font-size:11px;color:var(--muted)}
 select{background:#2b2b2b;border:1px solid #555;border-radius:2px;color:#dedede;
   padding:5px 7px;width:100%;min-width:0;min-height:27px;cursor:pointer}
+[hidden]{display:none !important}
+.modepicker{display:flex;gap:0;margin-top:9px}
+.modepicker button{flex:1;border-radius:0;background:#303030}
+.modepicker button:first-child{border-radius:3px 0 0 3px}
+.modepicker button:last-child{border-radius:0 3px 3px 0}
+.modepicker button.active{background:#3789c8;color:white;border-color:#509ccf}
+.modepicker button:disabled{opacity:.5}
+.stab-options{border-top:1px solid var(--line-soft);padding-top:10px;margin-top:12px}
+.stab-check{display:flex;align-items:center;gap:8px;font-size:11px;color:#bbb;margin:8px 0}
+.stab-check input{accent-color:#3789c8}
+input[type="range"]{width:100%;accent-color:#3789c8}
 .staticvalue{font-size:11px;color:#aaa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 footer{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 0 0;color:var(--quiet)}
 #boot{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px}
@@ -113,7 +124,7 @@ footer{display:flex;align-items:center;justify-content:space-between;gap:8px;pad
   <header>
     <div class="brand">
       <div class="wordmark">TomoTrack<span class="ai">AI</span></div>
-      <div class="subbrand">PlateTrack Engine <span aria-hidden="true">·</span> v0.5.1 UI</div>
+      <div class="subbrand">PlateTrack Engine <span aria-hidden="true">·</span> v0.6 · ESTABILIZACIÓN</div>
     </div>
     <div id="engineBadge" class="engine" data-state="loading" title="Estado del motor local">
       <i aria-hidden="true"></i><span id="engineState">Iniciando</span>
@@ -122,6 +133,15 @@ footer{display:flex;align-items:center;justify-content:space-between;gap:8px;pad
 
   <section aria-labelledby="sourceTitle">
     <div class="sectionline"><h2 id="sourceTitle">Objetivo</h2><span class="mini">Máscara nativa AE</span></div>
+    <div class="modepicker" role="group" aria-label="Modo de trabajo">
+      <button type="button" id="modeObject" class="active">Seguimiento</button>
+      <button type="button" id="modeStabilize">Estabilización</button>
+    </div>
+    <select id="workMode" hidden aria-label="Modo de trabajo">
+      <option value="object" selected>Seguimiento de objeto</option>
+      <option value="stabilize">Estabilización de cámara</option>
+    </select>
+    <p id="modeHint" class="helper" style="margin:9px 0">Dibujá una máscara cerrada sobre el objeto a seguir.</p>
     <div class="source">
       <span class="source-label">Capa</span><span class="source-value placeholder" id="sourceLayer">Seleccioná un video y dibujá una máscara cerrada (G).</span>
       <span class="source-label">Comp.</span><span class="source-value" id="sourceComp">—</span>
@@ -147,6 +167,33 @@ footer{display:flex;align-items:center;justify-content:space-between;gap:8px;pad
   <section aria-labelledby="exportTitle">
     <div class="sectionline"><h2 id="exportTitle">Resultado</h2><span class="mini">Position · Scale · Rotation</span></div>
     <button id="null" style="width:100%" disabled>◇ Crear Null de tracking</button>
+    <div id="stabilizeOptions" class="stab-options" hidden>
+      <div class="fieldrow">
+        <label for="stabMode">Modo</label>
+        <select id="stabMode">
+          <option value="smooth" selected>Movimiento suave</option>
+          <option value="lock">Cámara fija</option>
+        </select>
+      </div>
+      <div class="fieldrow">
+        <label for="stabStrength">Intensidad</label>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input id="stabStrength" type="range" min="0" max="100" value="100" step="5"/>
+          <span id="stabStrengthText" style="min-width:33px;text-align:right">100%</span>
+        </div>
+      </div>
+      <div class="fieldrow">
+        <label for="stabRadius">Suavizado</label>
+        <select id="stabRadius">
+          <option value="8">Ligero</option>
+          <option value="15" selected>Equilibrado</option>
+          <option value="30">Intenso</option>
+        </select>
+      </div>
+      <label class="stab-check"><input type="checkbox" id="stabCrop" checked/> Recorte / zoom automático</label>
+      <p class="helper">Analizá una región del <strong>fondo estático</strong>, no un sujeto en movimiento. La capa original quedará conservada y desactivada.</p>
+    </div>
+    <button id="stabilize" style="width:100%" disabled hidden>◇ Crear capa estabilizada</button>
     <button id="new" class="subtle">↺ Nueva sesión</button>
   </section>
 
