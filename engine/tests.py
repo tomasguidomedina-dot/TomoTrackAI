@@ -55,8 +55,9 @@ def smoke_real():
                             "inTangents": [[0,0]]*4,"outTangents": [[0,0]]*4,"closed": True},
                 start_seconds=0.0, end_seconds=0.7,
                 bbox={"x":80, "y":75, "w":56, "h":56},
-                confidence_threshold=0.0))
+                confidence_threshold=0.0, track_rotation=True, track_scale=True))
             assert data["first"]["frame"] == 0, data
+            assert data["first"]["rotation_deg"] == 0.0, data
             result = engine.step(3)
             assert result["total"] >= 2, result
             for s in result["new"]:
@@ -66,7 +67,10 @@ def smoke_real():
                 engine.snapshot(str(Path(td) / "motion.json"))
                 serialized = json.loads((Path(td) / "motion.json").read_text())
                 assert len(serialized["samples"]) >= 2
-                assert serialized["engine"] == "OpenCV NanoTrack V2"
+                assert serialized["engine"] == "OpenCV NanoTrack V2 + StableRotation"
+                assert serialized["track_rotation"] is True
+                assert serialized["track_scale"] is True
+                assert all("rotation_deg" in item for item in serialized["samples"])
                 assert serialized["run_id"] == "ci-test-mask-0001"
                 assert len(serialized["anchors"]) == 1
                 assert len(serialized["anchors"][0]["shape"]["vertices"]) == 4
