@@ -106,7 +106,7 @@ tomoBridge.setRegion=function(width,height,show){var undo=false;try{
     app.beginUndoGroup("TomoTrackAI - Ajustar selección");undo=true;
     z.f.property(2).setValue(w);
     z.f.property(3).setValue(h);
-    z.f.property(4).setValue(!!show);
+    z.f.property(4).setValue(show ? 1 : 0);
     z.l.selected=true;
     try{z.f.property(1).selected=true;}catch(ignore){}
     return '{"ok":true,"width":'+n(w)+',"height":'+n(h)+
