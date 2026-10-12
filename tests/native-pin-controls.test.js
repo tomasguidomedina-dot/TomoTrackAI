@@ -27,7 +27,7 @@ footage.file={exists:true,fsName:"/tmp/test-clip.mov"};
 footage.width=440;footage.height=280;
 const source=new AVLayer();
 Object.assign(source,{
- hasVideo:true,source,name:"Video Original",startTime:0,stretch:100,
+ hasVideo:true,source:footage,name:"Video Original",startTime:0,stretch:100,
  timeRemapEnabled:false,threeDLayer:false,index:1,inPoint:0,outPoint:20,
  selected:true,
  property(k){
