@@ -1,0 +1,20 @@
+[package]
+name = "tomotrack_native"
+version = "0.0.1"
+edition = "2024"
+license = "MIT"
+description = "TomoTrackAI native AE effect bootstrap for macOS Intel"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+after-effects = "=0.4.0"
+
+[build-dependencies]
+pipl = "=0.1.1"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = false
