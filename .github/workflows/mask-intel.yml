@@ -1,0 +1,127 @@
+name: TomoTrackAI v0.3.1 - Secuencia de mascara Intel
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15-intel
+    timeout-minutes: 45
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "12.0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python 3.11 Intel
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          architecture: x64
+
+      - name: Verificar interfaz, JSX, manifest e instaladores
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check bridge/extension/panel.js
+          node --check --input-type=commonjs < bridge/extension/jsx/host.jsx
+          node tests/mask-sequence.test.js
+          bash -n scripts/Instalar_TomoTrackAI.command scripts/Desinstalar_TomoTrackAI.command
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          tree=ET.parse('bridge/extension/CSXS/manifest.xml')
+          assert 'com.tomo.trackai3' in tree.getroot().attrib['ExtensionBundleId']
+          host=Path('bridge/extension/jsx/host.jsx').read_text()
+          pane=Path('bridge/extension/panel.js').read_text()
+          html=Path('bridge/extension/index.html').read_text()
+          for method in ('useMask','applyProgress','correction','rewind','makeNull'):
+              assert 'tomoMask.'+method+'=function' in host,method
+          for phrase in ('MaskMode.NONE','ADBE Mask Shape','setValueAtTime'):
+              assert phrase in host,phrase
+          assert 'ROI Select' not in html, 'El panel no debe mencionar el antiguo selector.'
+          for name in ('start','pause','correct','null','bar','boot'):
+              assert 'id="'+name+'"' in html,name
+          for name in ('Instalar_TomoTrackAI.command','Desinstalar_TomoTrackAI.command'):
+              assert Path('scripts',name).exists()
+          PY
+          python -m py_compile engine/nanotrack_engine.py engine/tests.py
+
+      - name: Instalar dependencias NanoTrack y PyInstaller
+        run: |
+          python -m pip install --disable-pip-version-check --only-binary=:all: \
+            numpy==1.26.4 opencv-contrib-python-headless==4.9.0.80 pyinstaller==6.16.0
+
+      - name: Pruebas reales de seguimiento y correccion de mascara
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/tomotrack-models"
+          BASE=https://raw.githubusercontent.com/HonglinChu/SiamTrackers/master/NanoTrack/models/nanotrackv2
+          curl -fLsS --retry 3 "$BASE/nanotrack_backbone_sim.onnx" -o "$RUNNER_TEMP/tomotrack-models/nanotrack_backbone_sim.onnx"
+          curl -fLsS --retry 3 "$BASE/nanotrack_head_sim.onnx" -o "$RUNNER_TEMP/tomotrack-models/nanotrack_head_sim.onnx"
+          echo "6e773a364457b78574f9f63a23b0659ee8646f8f  $RUNNER_TEMP/tomotrack-models/nanotrack_backbone_sim.onnx" | shasum -a 1 -c -
+          echo "39f168489671700cf739e402dfc67d41ce648aef  $RUNNER_TEMP/tomotrack-models/nanotrack_head_sim.onnx" | shasum -a 1 -c -
+          TOMOTRACK_MODELS="$RUNNER_TEMP/tomotrack-models" TOMOTRACK_SMOKE_REAL=1 python engine/tests.py
+
+      - name: Compilar NanoTrack autónomo Mac Intel
+        shell: bash
+        run: |
+          set -euo pipefail
+          pyinstaller --noconfirm --clean --onedir --console \
+            --name TomoTrackNano --distpath build-motor --workpath build-py \
+            --specpath build-py engine/nanotrack_engine.py
+          test -x build-motor/TomoTrackNano/TomoTrackNano
+          lipo build-motor/TomoTrackNano/TomoTrackNano -verify_arch x86_64
+
+      - name: Medir arranque real del motor
+        shell: bash
+        run: |
+          python - <<'PY'
+          import subprocess, time, select, json
+          p=subprocess.Popen(['build-motor/TomoTrackNano/TomoTrackNano'],
+             stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+          start=time.monotonic()
+          try:
+              ready,_,_=select.select([p.stdout],[],[],40)
+              assert ready, 'NanoTrack no generó respuesta inicial en 40 s'
+              msg=json.loads(p.stdout.readline())
+              elapsed=time.monotonic()-start
+              print(f'ARRANQUE_REAL_MAC_INTEL: {elapsed:.2f} segundos')
+              assert msg.get('ok') and msg.get('ready'),msg
+              p.stdin.write('{"cmd":"close"}\n');p.stdin.flush()
+          finally:
+              p.terminate()
+              try:p.wait(timeout=6)
+              except subprocess.TimeoutExpired:p.kill()
+          PY
+
+      - name: Empaquetar SOLO una extensión y un motor
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT=package/TomoTrackAI_v0.3.1_Mac_Intel
+          mkdir -p "$ROOT"
+          ditto build-motor/TomoTrackNano "$ROOT/TomoTrackNano"
+          ditto bridge/extension "$ROOT/extension"
+          cp scripts/Instalar_TomoTrackAI.command "$ROOT/"
+          cp scripts/Desinstalar_TomoTrackAI.command "$ROOT/"
+          cp MASK_V03_STATUS.md "$ROOT/LEEME_PRIMERO.md"
+          chmod +x "$ROOT/"*.command
+          test ! -e "$ROOT/TomoTrack_ROI_Select.plugin"
+          test ! -e "$ROOT/TomoTrack_Native_Check.plugin"
+          test -f "$ROOT/extension/jsx/host.jsx"
+          (cd package && ditto -c -k --sequesterRsrc --keepParent \
+            TomoTrackAI_v0.3.1_Mac_Intel TomoTrackAI_v0.3.1_Mac_Intel.zip)
+
+      - name: Publicar instalador v0.3
+        uses: actions/upload-artifact@v4
+        with:
+          name: TomoTrackAI_v0.3.1_Mac_Intel
+          path: package/TomoTrackAI_v0.3.1_Mac_Intel.zip
+          if-no-files-found: error
+          retention-days: 30
