@@ -95,6 +95,11 @@ jobs:
               try:p.terminate();p.wait(timeout=5)
               except subprocess.TimeoutExpired:p.kill()
           PY
+      - name: End-to-end protocolo del BINARIO Intel (video real)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python engine/tests_binary_stabilization.py build-motor/TomoPlateTrack/TomoPlateTrack
       - name: Empaquetar extensión separada y motor offline
         shell: bash
         run: |
