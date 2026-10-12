@@ -11,6 +11,98 @@ import sys
 from pathlib import Path
 
 
+class OpticalRotation:
+    """KLT + RANSAC para ángulos relativos; NanoTrack sigue controlando la posición.
+
+    Si faltan puntos fiables, conserva el último ángulo en vez de inventar una
+    rotación. Se usa una máscara poligonal para sembrar las esquinas del objeto.
+    """
+
+    def __init__(self, cv2, enabled):
+        self.cv2 = cv2
+        self.enabled = bool(enabled)
+        self.prev_gray = None
+        self.points = None
+        self.angle = 0.0
+        self.valid = False
+        self.inliers = 0
+        self.iteration = 0
+
+    def _corners(self, gray, box, polygon=None):
+        import numpy as np
+        h, w = gray.shape[:2]
+        x, y, bw, bh = [float(v) for v in box]
+        mask = np.zeros((h, w), dtype=np.uint8)
+        xa, ya = max(0, int(x)), max(0, int(y))
+        xb, yb = min(w, int(math.ceil(x + bw))), min(h, int(math.ceil(y + bh)))
+        if xb - xa < 10 or yb - ya < 10:
+            return None
+        mask[ya:yb, xa:xb] = 255
+        if polygon is not None and len(polygon) >= 3:
+            poly = np.rint(np.asarray(polygon, dtype=np.float32)).astype(np.int32)
+            poly_mask = np.zeros_like(mask)
+            self.cv2.fillPoly(poly_mask, [poly], 255)
+            mask = self.cv2.bitwise_and(mask, poly_mask)
+        pts = self.cv2.goodFeaturesToTrack(
+            gray, maxCorners=110, qualityLevel=0.015,
+            minDistance=4, blockSize=5, mask=mask)
+        return pts if pts is not None and len(pts) >= 8 else None
+
+    def start(self, frame, box, polygon=None, angle=0.0):
+        self.angle = float(angle)
+        self.prev_gray = self.cv2.cvtColor(frame, self.cv2.COLOR_BGR2GRAY) if self.enabled else None
+        self.points = self._corners(self.prev_gray, box, polygon) if self.enabled else None
+        self.valid = False
+        self.inliers = 0
+        self.iteration = 0
+
+    def step(self, frame, box, confidence=1.0):
+        if not self.enabled:
+            return 0.0, False, 0
+        import numpy as np
+        gray = self.cv2.cvtColor(frame, self.cv2.COLOR_BGR2GRAY)
+        self.iteration += 1
+        self.valid = False
+        self.inliers = 0
+        if self.prev_gray is not None and self.points is not None and confidence >= 0.18:
+            nxt, status, _ = self.cv2.calcOpticalFlowPyrLK(
+                self.prev_gray, gray, self.points, None,
+                winSize=(21, 21), maxLevel=2,
+                criteria=(self.cv2.TERM_CRITERIA_EPS | self.cv2.TERM_CRITERIA_COUNT, 20, 0.03))
+            if nxt is not None and status is not None:
+                good = status.ravel() == 1
+                before = self.points.reshape(-1, 2)[good]
+                after = nxt.reshape(-1, 2)[good]
+                if len(before) >= 8:
+                    transform, accepted = self.cv2.estimateAffinePartial2D(
+                        before, after, method=self.cv2.RANSAC,
+                        ransacReprojThreshold=3.0, maxIters=1500, confidence=0.995)
+                    if transform is not None and accepted is not None:
+                        count = int(np.count_nonzero(accepted))
+                        ratio = count / len(before)
+                        a, b = float(transform[0, 0]), float(transform[1, 0])
+                        scale = math.hypot(a, b)
+                        delta = math.degrees(math.atan2(b, a))
+                        if (count >= 6 and ratio >= 0.58 and
+                                0.82 <= scale <= 1.22 and abs(delta) <= 13.0):
+                            if abs(delta) >= 0.1:
+                                self.angle += delta
+                            self.valid = True
+                            self.inliers = count
+                # Reseleccionar si restan pocos puntos o cada 10 frames.
+                if len(after) >= 12 and self.iteration % 10 != 0:
+                    self.points = after.reshape(-1, 1, 2).astype(np.float32)
+                else:
+                    self.points = self._corners(gray, box)
+            else:
+                self.points = self._corners(gray, box)
+        else:
+            self.points = self._corners(gray, box)
+        self.prev_gray = gray
+        return round(self.angle, 5), self.valid, self.inliers
+
+
+
 def finite(value, name):
     v = float(value)
     if not math.isfinite(v):
@@ -50,6 +142,9 @@ class Engine:
         self.end_index = 0
         self.bad = 0
         self.threshold = 0.24
+        self.rotation = OpticalRotation(cv2, True)
+        self.track_rotation = True
+        self.track_scale = True
 
     def close(self):
         if self.cap is not None:
@@ -70,16 +165,19 @@ class Engine:
         tracker.init(frame, tuple(roi))
         self.tracker = tracker
 
-    def record(self, box, confidence, tracked=True):
+    def record(self, box, confidence, tracked=True, rotation=None):
         b = [finite(v, "bbox") for v in box]
         if len(b) != 4 or b[2] < 1 or b[3] < 1:
             raise ValueError("NanoTrack produjo una caja invalida")
         score = max(0.0, min(1.0, finite(confidence, "confidence")))
         low = not tracked or score < self.threshold
         self.bad = self.bad + 1 if low else 0
+        angle, rot_ok, inliers = rotation if rotation is not None else (self.rotation.angle, False, 0)
         record = dict(frame=self.index, source_time=round(self.index / self.fps, 8),
                       bbox=b, cx=round(b[0] + b[2] / 2, 5),
                       cy=round(b[1] + b[3] / 2, 5),
+                      rotation_deg=round(angle, 5),
+                      rotation_valid=bool(rot_ok), rotation_inliers=int(inliers),
                       confidence=round(score, 5), low_confidence=low)
         self.samples.append(record)
         return record
@@ -122,12 +220,21 @@ class Engine:
         roi = scaled_roi(job["bbox"], self.source_width, self.source_height,
                          self.width, self.height)
         self.threshold = max(0.0, min(1.0, finite(job.get("confidence_threshold", .24), "umbral")))
+        self.track_scale = bool(job.get("track_scale", True))
+        self.track_rotation = bool(job.get("track_rotation", True))
         self.create_tracker(frame, roi)
         self.metadata = {k: job[k] for k in ("video", "comp_name", "layer_name", "layer_start", "run_id", "mask_name")}
         shape = job.get("mask_shape")
         if not isinstance(shape, dict) or not shape.get("closed") or len(shape.get("vertices", [])) < 3:
             raise ValueError("Falta una máscara poligonal cerrada")
-        self.anchors = [dict(frame=self.index, bbox=dict(job["bbox"]), shape=shape)]
+        self.rotation = OpticalRotation(self.cv2, self.track_rotation)
+        # Vértices AE en coordenadas de fuente -> frame OpenCV.
+        polygon = [[finite(x, "vertexX") * self.width / self.source_width,
+                    finite(y, "vertexY") * self.height / self.source_height]
+                   for x, y in shape["vertices"]]
+        self.rotation.start(frame, roi, polygon=polygon, angle=0.0)
+        self.anchors = [dict(frame=self.index, bbox=dict(job["bbox"]),
+                             shape=shape, rotation_deg=0.0)]
         self.bad = 0
         first = self.record(roi, 1.0)
         return dict(first=first, fps=self.fps, width=self.width, height=self.height,
@@ -151,7 +258,8 @@ class Engine:
                 score = 1.0 if tracked else 0.0
             if not tracked:
                 bbox = self.samples[-1]["bbox"]
-            records.append(self.record(bbox, score, tracked))
+            rot = self.rotation.step(frame, bbox, score if tracked else 0.0)
+            records.append(self.record(bbox, score, tracked, rotation=rot))
             if self.bad >= 5:
                 break
         return dict(new=records, total=len(self.samples), frame=self.index,
@@ -174,7 +282,16 @@ class Engine:
         if not isinstance(shape, dict) or len(shape.get("vertices", [])) < 3:
             raise ValueError("No hay contorno corregido")
         self.anchors = [a for a in self.anchors if a["frame"] < index]
-        self.anchors.append(dict(frame=index, bbox=dict(cmd["bbox"]), shape=shape))
+        # El contorno corregido es una nueva referencia geométrica, pero el
+        # ángulo global acumulado continúa para que el Null no salte.
+        base_angle = self.samples[-1]["rotation_deg"] if self.samples else 0.0
+        self.rotation.start(frame, box,
+                            polygon=[[float(x) * self.width / self.source_width,
+                                      float(y) * self.height / self.source_height]
+                                     for x, y in shape["vertices"]],
+                            angle=base_angle)
+        self.anchors.append(dict(frame=index, bbox=dict(cmd["bbox"]),
+                                 shape=shape, rotation_deg=base_angle))
         self.bad = 0
         return dict(corrected=self.record(box, 1.0), total=len(self.samples))
 
@@ -183,13 +300,14 @@ class Engine:
             raise ValueError("No existe trayectoria")
         target = Path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
-        data = dict(version="0.2", engine="OpenCV NanoTrack V2",
+        data = dict(version="0.4", engine="OpenCV NanoTrack V2 + KLT RANSAC",
                     source_file=self.metadata["video"],
                     comp_name=self.metadata["comp_name"],
                     layer_name=self.metadata["layer_name"],
                     layer_start=self.metadata["layer_start"],
                     mask_name=self.metadata["mask_name"],
                     run_id=self.metadata["run_id"],
+                    track_scale=self.track_scale, track_rotation=self.track_rotation,
                     anchors=self.anchors,
                     fps=self.fps, width=self.width, height=self.height,
                     source_width=self.source_width, source_height=self.source_height,
