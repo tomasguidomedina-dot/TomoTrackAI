@@ -1,0 +1,75 @@
+name: TomoTrackAI v0.6.1 UI hotfix — Stabilization export
+
+on:
+  pull_request:
+    branches: [feature/platetrack-camera-stabilizer-v0.6]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ui-hotfix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: JS/ExtendScript y pruebas dinámicas del botón
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check bridge/extension/panel.js
+          node --check --input-type=commonjs < bridge/extension/jsx/host.jsx
+          node tests/stabilizer-export-button.test.js
+          node tests/mask-sequence.test.js
+          node tests/null-transform.test.js
+          node tests/stabilizer-transform.test.js
+          bash -n scripts/Instalar_Parche_Estabilizacion_v061.command
+          bash -n scripts/Restaurar_Parche_Estabilizacion_v061.command
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('bridge/extension/panel.js').read_text()
+          e=Path('engine/platetrack_engine.py').read_text()
+          assert 'platetrack-0.6.0-bridge-20261012' in p
+          assert 'TomoTrackAI6' in p
+          assert 'job.last_frame=r.last_frame' in p
+          assert 'el("stabilize").disabled=busy||!hasData||stabilized||!inStabMode()' in p
+          assert 'if(busy||!hasData||stabilized||!inStabMode())return' in p
+          assert 'if self.index<self.end_index' in e
+          assert 'if self.tracking_mode!="stabilize"' in e
+          assert 'com.tomo.trackai50' not in Path('scripts/Instalar_Parche_Estabilizacion_v061.command').read_text()
+          print("PASS — export UI control delega validación real al motor preexistente v0.6")
+          PY
+      - name: ZIP instalable, motor no incluido
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile,ZipInfo,ZIP_DEFLATED
+          out=Path('package/TomoTrackAI_v0.6.1_Parche_Boton_Estabilizar.zip')
+          out.parent.mkdir(parents=True,exist_ok=True)
+          sources={
+              'panel.js':Path('bridge/extension/panel.js'),
+              'Instalar_Parche_Estabilizacion_v061.command':Path('scripts/Instalar_Parche_Estabilizacion_v061.command'),
+              'Restaurar_Parche_Estabilizacion_v061.command':Path('scripts/Restaurar_Parche_Estabilizacion_v061.command'),
+              'LEEME.md':Path('PARCHE_ESTABILIZACION_V061.md')}
+          with ZipFile(out,'w',ZIP_DEFLATED,compresslevel=9) as z:
+              for name,p in sources.items():
+                  meta=ZipInfo(name)
+                  meta.create_system=3
+                  meta.external_attr=(0o100755 if name.endswith('.command') else 0o100644)<<16
+                  meta.compress_type=ZIP_DEFLATED
+                  z.writestr(meta,p.read_bytes())
+          with ZipFile(out) as z:
+              assert z.testzip() is None
+              assert sorted(z.namelist())==sorted(sources)
+          assert out.stat().st_size<200000, 'Parche inesperadamente grande: contiene binarios?'
+          print('PASS — parche panel-only',out.stat().st_size,'bytes')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TomoTrackAI_v0.6.1_Parche_Boton_Estabilizar
+          path: package/TomoTrackAI_v0.6.1_Parche_Boton_Estabilizar.zip
+          retention-days: 30
+          if-no-files-found: error
