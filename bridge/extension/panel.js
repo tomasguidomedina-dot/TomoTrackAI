@@ -6,8 +6,8 @@ var cep=window.__adobe_cep__;
 var req=(window.cep_node&&window.cep_node.require)||window.require||window.nodeRequire;
 var fs,os,path,spawn,readline,proc=null,ready=false,starting=null,queue=[],job=null;
 var resultFile="",busy=false,stopping=false,hasData=false,bootStart=0,clock=null;
-var lastScore=1;
-var EXPECTED_BRIDGE="platetrack-0.5.0-bridge-20261012",bridgeVerified=false;
+var lastScore=1,trackCompleted=false,stabilized=false;
+var EXPECTED_BRIDGE="platetrack-0.6.0-bridge-20261012",bridgeVerified=false;
 // Sólo interfaz. No afecta el motor, sus parámetros ni sus keyframes.
 function badge(state,label){
  var node=el("engineBadge");node.setAttribute("data-state",state);
@@ -34,16 +34,34 @@ function populateSource(){
  el("sourceComp").textContent=job?job.comp_name:"—";
  el("sourceMask").textContent=job?job.mask_name:"—";
 }
+function inStabMode(){return el("workMode").value==="stabilize";}
+function updateMode(){
+ var stab=inStabMode();
+ el("modeObject").className=stab?"":"active";
+ el("modeStabilize").className=stab?"active":"";
+ el("stabilizeOptions").hidden=!stab;
+ el("stabilize").hidden=!stab;
+ el("null").hidden=stab;
+ el("modeHint").textContent=stab?
+  "Dibujá una máscara sobre un fondo estático con textura. La cámara se estabiliza a partir de ese movimiento.":
+  "Dibujá una máscara cerrada sobre el objeto a seguir.";
+ el("correct").hidden=stab; // Las correcciones entre anclas aún no son válidas en estabilización.
+ el("single").textContent=stab?"Analizar 1 cuadro":"Avanzar 1 cuadro";
+ controls();
+}
 function controls(){
   el("start").disabled=busy;
   el("single").disabled=busy;
   el("pause").disabled=!busy;
-  el("correct").disabled=busy||!hasData;
-  el("null").disabled=busy||!hasData;
+  el("correct").disabled=busy||!hasData||inStabMode();
+  el("null").disabled=busy||!hasData||inStabMode();
+  el("stabilize").disabled=busy||!hasData||!trackCompleted||stabilized;
   el("new").disabled=busy;
   el("reconnect").disabled=busy||ready;
   el("previewMode").disabled=busy;
-  el("start").textContent=job?"▶ Continuar tracking":"▶ Iniciar tracking";
+  el("start").textContent=inStabMode()?(job?"▶ Continuar análisis":"▶ Analizar cámara"):(job?"▶ Continuar tracking":"▶ Iniciar tracking");
+  el("modeObject").disabled=busy||!!job;
+  el("modeStabilize").disabled=busy||!!job;
   if(busy){badge("tracking","Analizando");el("phaseLabel").textContent="Seguimiento activo";}
   else if(ready&&el("engineBadge").getAttribute("data-state")==="loading"){
     badge("ready","Listo");
@@ -67,7 +85,7 @@ async function verifyBridge(){
   try{
     var v=await bridge("version",[]);
     if(v.bridge_id!==EXPECTED_BRIDGE)throw Error("Puente "+String(v.version||"?")+
-       " (esperado 0.5).");
+       " (esperado 0.6).");
     bridgeVerified=true;
     el("bridgeVersion").textContent="Puente AE: v"+v.version+" verificado";
     return v;
@@ -75,7 +93,7 @@ async function verifyBridge(){
     bridgeVerified=false;
     el("bridgeVersion").textContent="Puente AE: versión sin verificar";
     throw Error("After Effects ejecuta un puente viejo o incompatible. "+
-      "Cerrá completamente AE, reinstalá TomoTrackAI v0.5 y reabrilo. Detalle: "+e.message);
+      "Cerrá completamente AE, reinstalá TomoTrackAI v0.6 y reabrilo. Detalle: "+e.message);
   }
 }
 function disconnect(reason){
@@ -107,7 +125,7 @@ function launch(){
      if(!req)throw Error("El panel no tiene acceso al motor local (Node de CEP).");
      fs=req("fs");os=req("os");path=req("path");
      spawn=req("child_process").spawn;readline=req("readline");
-     var root=path.join(os.homedir(),"Library","Application Support","TomoTrackAI5");
+     var root=path.join(os.homedir(),"Library","Application Support","TomoTrackAI6");
      var exe=path.join(root,"engine","TomoPlateTrack","TomoPlateTrack");
      resultFile=path.join(root,"jobs","current-mask-track.json");
      if(!fs.existsSync(exe))throw Error("Falta el motor local. Volvé a ejecutar Instalar_TomoTrackAI.command.");
@@ -165,6 +183,7 @@ function progress(r){
 }
 async function snapshot(){
  await rpc({cmd:"snapshot",output:resultFile});
+ if(job&&job.mode==="stabilize")return {ok:true,skipped_mask_animation:true};
  return bridge("applyProgress",[resultFile]);
 }
 function previewPolicy(){
@@ -176,6 +195,9 @@ function waitForPreview(ms){return new Promise(function(resolve){setTimeout(reso
 async function startSession(){
  var selection=await bridge("useMask",[]);
  job=selection.job;
+ job.mode=el("workMode").value;
+ trackCompleted=false;
+ stabilized=false;
  populateSource();
  job.confidence_threshold=0.24;
  job.tracking_model="similarity";
@@ -200,7 +222,7 @@ async function track(continuous){
    var r;
    do{
      // Lotes pequeños: los keyframes y la máscara aparecen mientras se rastrea.
-     var policy=previewPolicy();
+     var policy=job&&job.mode==="stabilize"?{batch:12,delay:0}:previewPolicy();
      r=await rpc({cmd:"step",count:continuous?policy.batch:1});
      if(r.new&&r.new.length){
        await snapshot();
@@ -215,11 +237,16 @@ async function track(continuous){
      }
      if(stopping){status("Pausado en el último fotograma solicitado. Esperá a que el visor termine de dibujarlo antes de corregir.");break;}
      if(r.needs_correction){
-       status("El objeto perdió confianza. Ajustá la máscara en el fotograma visible y pulsá Corregir.");
+       status(inStabMode()?
+         "Se perdió la referencia del fondo. No generaré estabilización con esos fotogramas. Iniciá una sesión con otra zona estática.":
+         "El objeto perdió confianza. Ajustá la máscara en el fotograma visible y pulsá Corregir.");
        break;
      }
      if(r.ended||!r.new||!r.new.length){
-       status("Track terminado: "+r.total+" cuadros. Podés crear el Null.");
+       trackCompleted=!!r.ended&&!!r.new&&r.new.length>0;
+       status(inStabMode()?
+         "Análisis completo: "+r.total+" cuadros. Elegí los parámetros y pulsá Crear capa estabilizada.":
+         "Track terminado: "+r.total+" cuadros. Podés crear el Null.");
        break;
      }
      if(!continuous){
@@ -247,6 +274,26 @@ async function correct(){
  }catch(e){status("Error al corregir: "+e.message);}
  finally{lock(false);}
 }
+async function stabilizeCamera(){
+ if(busy||!hasData||!trackCompleted||stabilized||!inStabMode())return;
+ lock(true);
+ try{
+   await verifyBridge();
+   var settings={
+     cmd:"stabilize",
+     mode:el("stabMode").value,
+     strength:Number(el("stabStrength").value)/100,
+     radius:Number(el("stabRadius").value),
+     auto_crop:el("stabCrop").checked
+   };
+   var response=await rpc(settings);
+   await rpc({cmd:"snapshot",output:resultFile});
+   var applied=await bridge("applyStabilization",[resultFile]);
+   stabilized=true;
+   status("Cámara estabilizada: "+applied.keyframes+" fotogramas. Zoom "+Math.round(response.zoom*100)+"%. Capa original conservada.");
+ }catch(e){status("Error al estabilizar: "+e.message);}
+ finally{lock(false);}
+}
 async function nullFromMask(){
  if(busy||!hasData)return;
  lock(true);
@@ -263,8 +310,19 @@ el("single").onclick=function(){track(false);};
 el("pause").onclick=function(){stopping=true;status("Pausando al terminar el fotograma actual...");};
 el("correct").onclick=correct;
 el("null").onclick=nullFromMask;
+el("stabilize").onclick=stabilizeCamera;
+el("stabStrength").oninput=function(){el("stabStrengthText").textContent=this.value+"%";};
+el("modeObject").onclick=function(){
+ if(busy||job)return;
+ el("workMode").value="object";updateMode();
+};
+el("modeStabilize").onclick=function(){
+ if(busy||job)return;
+ el("workMode").value="stabilize";updateMode();
+};
 el("new").onclick=function(){
- if(busy)return;job=null;hasData=false;el("count").textContent="0 cuadros";el("bar").value=0;
+ if(busy)return;job=null;hasData=false;trackCompleted=false;stabilized=false;
+ el("count").textContent="0 cuadros";el("bar").value=0;
  el("quality").textContent="Confianza y referencias aparecerán durante el análisis.";
  el("quality").setAttribute("data-tone","");
  populateSource();
@@ -274,7 +332,7 @@ el("new").onclick=function(){
 el("reconnect").onclick=function(){launch().catch(function(){});};
 window.addEventListener("beforeunload",function(){if(proc)try{proc.kill();}catch(ignore){}});
 populateSource();
-controls();
+updateMode();
 verifyBridge()
  .then(function(){return launch();})
  .catch(function(e){status(e.message);});
