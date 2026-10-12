@@ -1,19 +1,23 @@
-# TomoTrackAI v0.2 — Integración nativa + NanoTrack
+# TomoTrackAI v0.2.1 — Ventana única de seguimiento
 
-## Qué está implementado (requiere validación del usuario en AE 2024)
-- **Selector nativo ROI v0.1.0** (Rust AE Effect) previamente confirmado por el usuario.
-- Motor OpenCV **NanoTrack V2** siguiendo cuadros reales del video fuente.
-- Controles de analizar, un cuadro, detener, corregir la selección y crear Null.
-- Keyframes de punto y tamaño en el **efecto nativo ROI**; el recuadro se desplaza en AE.
-- Null con posición animada; sin cambio de escala; capa de video original sin deformación.
-- Empaquetado del motor como ejecutable con PyInstaller para Intel; no Python manual.
-- Modelos ONNX descargados por instalador **desde el repositorio del autor** con SHA1 verificado. Requiere conexión inicialmente.
+## Confirmado en la Mac del usuario (AE 2024 / Intel / macOS Monterey)
+- Native Check v0.0.3: carga y dibuja señal visual.
+- ROI Select v0.1.0: arrastre del recuadro sobre el visor de composición.
+- **TomoTrackAI v0.2.0**: el usuario confirmó seguimiento NanoTrack perfecto sobre un video real y creación de un Null.
+- Primer fallo intermitente detectado: «Motor NanoTrack no iniciado» al abrir el panel; reintentó y funcionó. Origen encontrado en `bridge/extension/panel.js`: `rpc` rechazaba comandos si llegaban antes del saludo de inicio del proceso Python congelado.
 
-## Arquitectura honesta
-El seguimiento temporal corre en proceso local, no en PF_Cmd_RENDER. Una extensión CEP mínima conecta el proceso y el proyecto; no se presenta el panel como el efecto nativo. El recuadro/selector sigue siendo un verdadero archivo `.plugin`.
+## Objetivos v0.2.1
+**Una sola ventana operativa:** abrí Ventana > Extensiones (heredadas) > **TomoTrackAI** y seleccioná una capa de video. «Preparar objetivo» instala/activa automáticamente el efecto nativo ROI Select en la capa y permite arrastrar el punto en el visor de composición. El tamaño del ROI y su visibilidad se controlan en el mismo panel. «Analizar», «Corregir» y «Crear Null» también se controlan ahí.
 
-## Límites vigentes
-Solo archivos de video 2D sin remapeo temporal, sin precomposiciones. Si AE tiene el clip modificado con time stretching o reelaboraciones complejas, esta build no admite la correspondencia de fotogramas. El rendimiento depende de tamaño/duración y Mac Intel 8 GB.
+El motor NanoTrack V2 es un ejecutable local e independiente por seguridad/rendimiento; el overlay y el punto arrastrable usan el efecto nativo de AE. **Son dos componentes técnicos, pero no deberían requerir dos operaciones manuales ni dos ventanas**. No afirmar que el seguimiento ocurre dentro del binario `.plugin`; sucede en el motor empaquetado.
 
-### No dar por probado hasta validar en la máquina destino
-Que GitHub produzca un `.plugin` y un executable macOS **NO** demuestra que NanoTrack funcione en AE 2024. Hay que instalar y realizar seguimiento sobre un video real. Mantener v0.0.3 y v0.1.0 estables sin sobrescribirlas.
+### Corrección del arranque
+`launch()` espera la respuesta inicial `{"ok":true,"ready":true}`, mantiene desactivados los botones de análisis hasta ese momento y ofrece «Reintentar motor». `rpc()` espera a `launch()` en vez de rechazar por una carrera de inicialización.
+
+## Verificación
+Compilar y empaquetar en GitHub Actions no demuestra que el flujo unificado funcione en AE 2024; queda pendiente probarlo en la máquina real. La versión 0.2.0 que sí siguió y creó el Null sigue preservada en `stable/tracking-v0.2.0`.
+
+El instalador v0.2.1 actualiza el panel CEP y el motor; **preserva** el efecto nativo ROI Select que ya funciona, además de las versiones anteriores.
+
+## Límites conocidos
+Solo metraje de video local, sin precomposiciones, sin remapeo temporal ni cambio de velocidad; AE 2024 Mac Intel. Requiere acceso a Internet durante la instalación inicial de los modelos ONNX, cuyos SHA se verifican. No se necesita Python/Xcode instalados por el usuario.
