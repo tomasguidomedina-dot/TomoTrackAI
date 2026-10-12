@@ -23,8 +23,14 @@ echo "No instala modelos ONNX, ni ejecuta curl, ni modifica tus otros plugins."
 if [[ "$(uname -s)" != "Darwin" || "$(uname -m)" != "x86_64" ]];then
   echo "Requiere macOS Intel.";exit 1
 fi
-if pgrep -fl "After Effects" >/dev/null 2>&1;then
-  echo "Cerrá After Effects con Cmd+Q antes de instalar.";exit 1
+# Comprobar SOLO el proceso principal, no buscar el texto en toda la línea
+# de comandos (-f), que también encuentra servicios Adobe en segundo plano.
+if pgrep -x "After Effects" >/dev/null 2>&1 || pgrep -x "After Effects 2024" >/dev/null 2>&1;then
+  echo "After Effects sigue ejecutándose. Cerrá la aplicación con Cmd+Q antes de instalar."
+  echo "Proceso principal detectado (no se cuentan los servicios Adobe auxiliares):"
+  pgrep -lx "After Effects" 2>/dev/null || true
+  pgrep -lx "After Effects 2024" 2>/dev/null || true
+  exit 1
 fi
 if [[ ! -x "$ROOT/TomoPlateTrack/TomoPlateTrack" || ! -f "$ROOT/extension/CSXS/manifest.xml" ]];then
   echo "Faltan el motor PlateTrack o el panel CEP en el paquete.";exit 1
