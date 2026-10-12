@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<ExtensionManifest xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ExtensionBundleId="com.tomo.trackai3" ExtensionBundleVersion="0.3.0" Version="7.0">
-  <ExtensionList><Extension Id="com.tomo.trackai3.panel" Version="0.3.0"/></ExtensionList>
+<ExtensionManifest xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ExtensionBundleId="com.tomo.trackai3" ExtensionBundleVersion="0.3.1" Version="7.0">
+  <ExtensionList><Extension Id="com.tomo.trackai3.panel" Version="0.3.1"/></ExtensionList>
   <ExecutionEnvironment>
     <HostList><Host Name="AEFT" Version="[24.0,24.9]"/></HostList>
     <LocaleList><Locale Code="All"/></LocaleList>
