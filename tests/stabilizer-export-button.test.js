@@ -26,7 +26,7 @@ function harness(steps,stabilizerAllowed) {
     __adobe_cep__:{
       evalScript(code,callback){
        const name=(code.match(/^tomoMask\.(\w+)\(/)||[])[1];
-       if(name==="version")callback(JSON.stringify({ok:true,version:"0.6.0",bridge_id:"platetrack-0.6.0-bridge-20261012"}));
+       if(name==="version")callback(JSON.stringify({ok:true,version:"0.6.0",bridge_id:"platetrack-0.6.2-bridge-20261012"}));
        else if(name==="useMask")callback(JSON.stringify({ok:true,job:{
          video:"/video.mp4",layer_name:"Video",comp_name:"Comp",mask_name:"Mask",
          source_width:400,source_height:300,layer_start:0,start_seconds:0,end_seconds:1}}));
