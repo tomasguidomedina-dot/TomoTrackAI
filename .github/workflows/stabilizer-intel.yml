@@ -42,7 +42,7 @@ jobs:
           assert "platetrack-0.6.0-bridge-20261012" in p and "platetrack-0.6.0-bridge-20261012" in h
           assert "TomoTrackAI6" in p and "TomoTrackAI5" not in p
           assert "com.tomo.trackai60" in Path("scripts/Instalar_TomoTrackAI.command").read_text()
-          assert "com.tomo.trackai50" not in Path("scripts/Instalar_TomoTrackAI.command").read_text()
+          assert 'PANEL="$CEP/com.tomo.trackai60"' in Path("scripts/Instalar_TomoTrackAI.command").read_text()
           assert 'sample.matrix' in h and 's.scale_factor' in h
           assert 's.bbox[2]' not in h
           for item in ("start","pause","correct","null","stabilize","stabCrop","stabRadius","stabMode",
