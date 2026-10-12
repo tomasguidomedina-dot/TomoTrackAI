@@ -8,7 +8,7 @@ MODELS="$ROOT/models"
 EXT="$HOME/Library/Application Support/Adobe/CEP/extensions/com.tomo.trackai2"
 NATIVE="$DIR/TomoTrack_ROI_Select.plugin"
 NATIVE_DEST="/Library/Application Support/Adobe/Common/Plug-ins/7.0/MediaCore/TomoTrack_ROI_Select.plugin"
-echo "TOMOTRACK AI 0.2 - Seguimiento NanoTrack (macOS Intel)"
+echo "TOMOTRACK AI 0.2.1 - Todo en un panel (macOS Intel)"
 echo "No requiere instalar Python ni compilar."
 if [[ "$(uname -s)" != "Darwin" || "$(uname -m)" != "x86_64" ]]; then
   echo "Este instalador es solamente para macOS Intel."
@@ -63,6 +63,6 @@ ditto "$DIR/extension" "$EXT"
 defaults write com.adobe.CSXS.11 PlayerDebugMode 1
 defaults write com.adobe.CSXS.12 PlayerDebugMode 1
 echo "[3/3] Panel de control instalado."
-echo "TERMINADO. Abrí AE 2024 > Ventana > Extensiones (heredadas) > TomoTrack AI 2 · NanoTrack."
-echo "Seleccioná el video con TomoTrack ROI Select. Iniciá seguimiento desde el panel."
+echo "TERMINADO. Abrí AE 2024 > Ventana > Extensiones (heredadas) > TomoTrackAI."
+echo "Seleccioná la capa de video y hacé clic en Preparar objetivo en el panel; el efecto se añade solo."
 read -r -p "Enter para cerrar..." _
