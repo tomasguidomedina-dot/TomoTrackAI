@@ -1,4 +1,4 @@
-/* TomoTrackAI 0.3 - ÚNICO PANEL: máscara AE + NanoTrack local + Null. */
+/* TomoTrackAI 0.3 - ÚNICO PANEL: máscara AE + PlateTrack local + Null. */
 (function(){
 "use strict";
 var el=function(id){return document.getElementById(id);};
@@ -6,7 +6,8 @@ var cep=window.__adobe_cep__;
 var req=(window.cep_node&&window.cep_node.require)||window.require||window.nodeRequire;
 var fs,os,path,spawn,readline,proc=null,ready=false,starting=null,queue=[],job=null;
 var resultFile="",busy=false,stopping=false,hasData=false,bootStart=0,clock=null;
-var EXPECTED_BRIDGE="mask-0.3.2-bridge-20261012",bridgeVerified=false;
+var lastScore=1;
+var EXPECTED_BRIDGE="platetrack-0.5.0-bridge-20261012",bridgeVerified=false;
 function status(s){el("status").textContent=String(s);}
 function controls(){
   el("start").disabled=busy;
@@ -16,6 +17,7 @@ function controls(){
   el("null").disabled=busy||!hasData;
   el("new").disabled=busy;
   el("reconnect").disabled=busy||ready;
+  el("previewMode").disabled=busy;
 }
 function lock(v){busy=v;controls();}
 function bridge(method,args){
@@ -34,7 +36,7 @@ async function verifyBridge(){
   try{
     var v=await bridge("version",[]);
     if(v.bridge_id!==EXPECTED_BRIDGE)throw Error("Puente "+String(v.version||"?")+
-       " (esperado 0.3.2).");
+       " (esperado 0.5).");
     bridgeVerified=true;
     el("bridgeVersion").textContent="Puente AE: v"+v.version+" verificado";
     return v;
@@ -42,7 +44,7 @@ async function verifyBridge(){
     bridgeVerified=false;
     el("bridgeVersion").textContent="Puente AE: versión sin verificar";
     throw Error("After Effects ejecuta un puente viejo o incompatible. "+
-      "Cerrá completamente AE, aplicá el parche v0.3.2 y reabrilo. Detalle: "+e.message);
+      "Cerrá completamente AE, reinstalá TomoTrackAI v0.5 y reabrilo. Detalle: "+e.message);
   }
 }
 function disconnect(reason){
@@ -68,14 +70,14 @@ function launch(){
        ((Date.now()-bootStart)>12000?" · inicio lento, sin conexión a Internet":"");
    },500);
    timeout=setTimeout(function(){
-      bad(Error("NanoTrack no respondió después de 60 segundos. Pulsá Reconectar."));
+      bad(Error("PlateTrack no respondió después de 60 segundos. Pulsá Reconectar."));
    },60000);
    try{
      if(!req)throw Error("El panel no tiene acceso al motor local (Node de CEP).");
      fs=req("fs");os=req("os");path=req("path");
      spawn=req("child_process").spawn;readline=req("readline");
-     var root=path.join(os.homedir(),"Library","Application Support","TomoTrackAI3");
-     var exe=path.join(root,"engine","TomoTrackNano","TomoTrackNano");
+     var root=path.join(os.homedir(),"Library","Application Support","TomoTrackAI5");
+     var exe=path.join(root,"engine","TomoPlateTrack","TomoPlateTrack");
      resultFile=path.join(root,"jobs","current-mask-track.json");
      if(!fs.existsSync(exe))throw Error("Falta el motor local. Volvé a ejecutar Instalar_TomoTrackAI.command.");
      fs.mkdirSync(path.dirname(resultFile),{recursive:true});
@@ -86,8 +88,8 @@ function launch(){
      });
      child.on("error",function(e){bad(Error("No se pudo iniciar el motor: "+e.message));});
      child.on("exit",function(code){
-       if(!settled)bad(Error("NanoTrack se cerró durante inicio: "+code+" "+log.slice(-450)));
-       else{disconnect("NanoTrack finalizó: "+code+" "+log.slice(-400));
+       if(!settled)bad(Error("PlateTrack se cerró durante inicio: "+code+" "+log.slice(-450)));
+       else{disconnect("PlateTrack finalizó: "+code+" "+log.slice(-400));
          if(!busy)status("Motor detenido. Pulsá Reconectar.");}
      });
      var stream=readline.createInterface({input:child.stdout});
@@ -100,9 +102,9 @@ function launch(){
            ready=true;controls();
            var elapsed=((Date.now()-bootStart)/1000).toFixed(1);
            el("boot").textContent="Motor listo en "+elapsed+" s";
-           status("NanoTrack listo. Dibujá una máscara cerrada sobre el objeto y pulsá Analizar.");
+           status("PlateTrack listo. Dibujá una máscara cerrada sobre el objeto y pulsá Analizar.");
            resolve();
-         }else bad(Error(response.error||"NanoTrack no inició correctamente"));
+         }else bad(Error(response.error||"PlateTrack no inició correctamente"));
          return;
        }
        var item=queue.shift();
@@ -134,11 +136,21 @@ async function snapshot(){
  await rpc({cmd:"snapshot",output:resultFile});
  return bridge("applyProgress",[resultFile]);
 }
+function previewPolicy(){
+  var v=el("previewMode").value;
+  // No guarantees a rendered frame: yield the main thread between analysis steps.
+  return v==="fast"?{batch:4,delay:55}:v==="balanced"?{batch:2,delay:160}:{batch:1,delay:350};
+}
+function waitForPreview(ms){return new Promise(function(resolve){setTimeout(resolve,ms);});}
 async function startSession(){
  var selection=await bridge("useMask",[]);
  job=selection.job;
  job.confidence_threshold=0.24;
- var r=await rpc({cmd:"init",job:job});
+ job.tracking_model="similarity";
+ job.ecc_refine=true;
+ var r;
+ try { r=await rpc({cmd:"init",job:job}); }
+ catch(e){job=null;hasData=false;controls();throw e;}
  job.fps=r.fps;
  hasData=true;
  await snapshot();
@@ -156,11 +168,19 @@ async function track(continuous){
    var r;
    do{
      // Lotes pequeños: los keyframes y la máscara aparecen mientras se rastrea.
-     r=await rpc({cmd:"step",count:continuous?2:1});
+     var policy=previewPolicy();
+     r=await rpc({cmd:"step",count:continuous?policy.batch:1});
      if(r.new&&r.new.length){
        await snapshot();
        progress(r);
+       var latest=r.new[r.new.length-1];
+       lastScore=latest.confidence;
+       el("quality").textContent="PlateTrack "+Math.round(lastScore*100)+" % · "+latest.points+
+         " puntos · "+(latest.ecc_score===null?"ECC sin convergencia":"ECC "+Number(latest.ecc_score).toFixed(2))+
+         " · cuadro "+latest.frame;
+       await waitForPreview(continuous?policy.delay:180);
      }
+     if(stopping){status("Pausado en el último fotograma solicitado. Esperá a que el visor termine de dibujarlo antes de corregir.");break;}
      if(r.needs_correction){
        status("El objeto perdió confianza. Ajustá la máscara en el fotograma visible y pulsá Corregir.");
        break;
@@ -174,7 +194,7 @@ async function track(continuous){
        break;
      }
      status("Siguiendo el objeto... "+r.total+" cuadros. Pausar para ajustar.");
-     await new Promise(function(done){setTimeout(done,10);});
+     await waitForPreview(0);
    }while(!stopping);
    if(stopping)status("Track pausado. Mové o ajustá la máscara aquí y pulsá Corregir.");
  }catch(e){status("Error: "+e.message);}
@@ -201,7 +221,7 @@ async function nullFromMask(){
    await rpc({cmd:"snapshot",output:resultFile});
    await verifyBridge();
    var r=await bridge("makeNull",[resultFile]);
-   status("Null creado correctamente: "+r.keyframes+" keyframes.");
+   status("PlateTrack: Null con "+r.keyframes+" keyframes · Position, Scale, Rotation.");
  }catch(e){status("Error creando Null: "+e.message);}
  finally{lock(false);}
 }
@@ -212,6 +232,7 @@ el("correct").onclick=correct;
 el("null").onclick=nullFromMask;
 el("new").onclick=function(){
  if(busy)return;job=null;hasData=false;el("count").textContent="0 cuadros";el("bar").value=0;
+ el("quality").textContent="Confianza y estimación de giro aparecerán durante el seguimiento.";
  status("Nueva sesión: dibujá una máscara nueva o elegí otra capa.");
  controls();
 };
