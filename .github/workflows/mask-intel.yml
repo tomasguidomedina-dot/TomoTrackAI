@@ -1,4 +1,4 @@
-name: TomoTrackAI v0.3 - Una sola extension Mac Intel
+name: TomoTrackAI v0.3.1 - Secuencia de mascara Intel
 
 on:
   pull_request:
@@ -29,6 +29,7 @@ jobs:
           set -euo pipefail
           node --check bridge/extension/panel.js
           node --check --input-type=commonjs < bridge/extension/jsx/host.jsx
+          node tests/mask-sequence.test.js
           bash -n scripts/Instalar_TomoTrackAI.command scripts/Desinstalar_TomoTrackAI.command
           python3 - <<'PY'
           import xml.etree.ElementTree as ET
@@ -103,7 +104,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ROOT=package/TomoTrackAI_v0.3_Mac_Intel
+          ROOT=package/TomoTrackAI_v0.3.1_Mac_Intel
           mkdir -p "$ROOT"
           ditto build-motor/TomoTrackNano "$ROOT/TomoTrackNano"
           ditto bridge/extension "$ROOT/extension"
@@ -115,12 +116,12 @@ jobs:
           test ! -e "$ROOT/TomoTrack_Native_Check.plugin"
           test -f "$ROOT/extension/jsx/host.jsx"
           (cd package && ditto -c -k --sequesterRsrc --keepParent \
-            TomoTrackAI_v0.3_Mac_Intel TomoTrackAI_v0.3_Mac_Intel.zip)
+            TomoTrackAI_v0.3.1_Mac_Intel TomoTrackAI_v0.3.1_Mac_Intel.zip)
 
       - name: Publicar instalador v0.3
         uses: actions/upload-artifact@v4
         with:
-          name: TomoTrackAI_v0.3_Mac_Intel
-          path: package/TomoTrackAI_v0.3_Mac_Intel.zip
+          name: TomoTrackAI_v0.3.1_Mac_Intel
+          path: package/TomoTrackAI_v0.3.1_Mac_Intel.zip
           if-no-files-found: error
           retention-days: 30
