@@ -52,8 +52,8 @@ jobs:
             <key>CFBundlePackageType</key><string>eFKT</string>
             <key>CFBundleSignature</key><string>FXTC</string>
             <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
-            <key>CFBundleVersion</key><string>0.0.1</string>
-            <key>CFBundleShortVersionString</key><string>0.0.1</string>
+            <key>CFBundleVersion</key><string>0.0.2</string>
+            <key>CFBundleShortVersionString</key><string>0.0.2</string>
             <key>LSMinimumSystemVersion</key><string>12.0</string>
           </dict>
           </plist>
@@ -68,12 +68,12 @@ jobs:
           chmod +x dist/*.command
           cd dist
           ditto -c -k --sequesterRsrc --keepParent TomoTrack_Native_Check.plugin Native_Check_Plugin_Only.zip
-          zip -q -r TomoTrack_Native_Check_Mac_Intel.zip TomoTrack_Native_Check.plugin Install_TomoTrack.command Uninstall_TomoTrack.command
+          zip -q -r TomoTrack_Native_Check_v0.0.2_Mac_Intel.zip TomoTrack_Native_Check.plugin Install_TomoTrack.command Uninstall_TomoTrack.command
 
       - name: Upload verified bundle as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TomoTrack_Native_Check_Mac_Intel
-          path: dist/TomoTrack_Native_Check_Mac_Intel.zip
+          name: TomoTrack_Native_Check_v0.0.2_Mac_Intel
+          path: dist/TomoTrack_Native_Check_v0.0.2_Mac_Intel.zip
           if-no-files-found: error
           retention-days: 30
