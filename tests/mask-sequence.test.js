@@ -69,13 +69,14 @@ const sandbox = {
 vm.createContext(sandbox);
 vm.runInContext(fs.readFileSync("bridge/extension/jsx/host.jsx", "utf8"), sandbox);
 const version = JSON.parse(sandbox.tomoMask.version());
-assert.strictEqual(version.bridge_id, "mask-0.3.2-bridge-20261012");
+assert.strictEqual(version.bridge_id, "platetrack-0.5.0-bridge-20261012");
 const rect = {
   vertices: [[50,50],[90,50],[90,90],[50,90]],
   inTangents: [[0,0],[0,0],[0,0],[0,0]],
   outTangents: [[0,0],[0,0],[0,0],[0,0]],closed:true
 };
 const frame = i => ({
+  matrix:[[1,0,i*2],[0,1,i],[0,0,1]],scale_factor:1,rotation_deg:0,
   frame: i, source_time: i / 30,
   cx: 70+i*2, cy: 70+i,
   bbox: [50+i*2,50+i,40,40],
@@ -105,4 +106,21 @@ snapshot.samples.push(frame(7)); // genuinely missing frame 6
 const gap = JSON.parse(sandbox.tomoMask.applyProgress("/virtual.json"));
 assert.strictEqual(gap.ok, false, "real missing frame should still be detected");
 assert(/Faltan cuadros/.test(gap.error), gap.error);
-console.log("PASS — lotes 0–2 y 3–5, relectura sin duplicados, salto real detectado.");
+// Escala y rotación geométricas sobre la MISMA máscara libre.
+snapshot.run_id="mask-rotated";
+snapshot.samples=[frame(0),Object.assign(frame(1),{
+ rotation_deg:8, scale_factor:1.2,
+ matrix:[[1.188322,-0.166607,8.49],[0.166607,1.188322,-17.6],[0,0,1]],
+ bbox:[52,51,48,44],cx:76,cy:73
+})];
+snapshot.anchors=[{frame:0,bbox:{x:50,y:50,w:40,h:40},shape:rect,rotation_deg:0}];
+snapshot.track_scale=true;
+snapshot.track_rotation=true;
+const offset=trace.length;
+assert.strictEqual(apply().applied,2);
+const shape0=trace[offset][1], shape1=trace[offset+1][1];
+const initialWidth=Math.hypot(shape0[1][0]-shape0[0][0],shape0[1][1]-shape0[0][1]);
+const updatedWidth=Math.hypot(shape1[1][0]-shape1[0][0],shape1[1][1]-shape1[0][1]);
+assert(updatedWidth>initialWidth*1.15,"la máscara debería crecer con PlateTrack");
+assert(Math.abs(shape1[1][1]-shape1[0][1])>3,"la máscara debería girar con la rotación calculada");
+console.log("PASS — lotes de tres cuadros, salto genuino, escala y rotación de máscara.");
