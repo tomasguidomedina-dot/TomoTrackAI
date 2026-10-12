@@ -10,7 +10,7 @@ MODELS_URL="https://raw.githubusercontent.com/HonglinChu/SiamTrackers/master/Nan
 
 echo ""
 echo "=================================================="
-echo " TOMOTRACKAI v0.3 · PLUGIN ÚNICO / MÁSCARAS AE"
+echo " TOMOTRACKAI v0.3.1 · PLUGIN ÚNICO / MÁSCARAS AE"
 echo "=================================================="
 echo "Sin efecto ROI Select ni otros plugins separados."
 if [[ "$(uname -s)" != "Darwin" || "$(uname -m)" != "x86_64" ]];then
