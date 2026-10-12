@@ -1,4 +1,4 @@
-# TomoTrackAI v0.3 — un solo plugin visible en After Effects
+# TomoTrackAI v0.3.1 — un solo plugin visible en After Effects
 
 ## Qué cambió respecto de las versiones anteriores
 
