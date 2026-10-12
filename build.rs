@@ -5,14 +5,14 @@ fn main() {
     let flags2 = OutFlags2::empty();
     pipl::plugin_build(vec![
         Property::Kind(PIPLType::AEEffect),
-        Property::Name("TomoTrack Native Check"),
+        Property::Name("TomoTrack ROI Select"),
         Property::Category("Tomo FX"),
         #[cfg(target_os = "macos")]
         Property::CodeMacIntel64("EffectMain"),
         Property::AE_PiPL_Version { major: 2, minor: 0 },
         Property::AE_Effect_Spec_Version { major: 13, minor: 28 },
         Property::AE_Effect_Version {
-            version: 0, subversion: 0, bugversion: 3,
+            version: 0, subversion: 0, bugversion: 10,
             stage: Stage::Develop, build: 1,
         },
         Property::AE_Effect_Info_Flags(0),
@@ -20,7 +20,7 @@ fn main() {
             OutFlags::PixIndependent | OutFlags::DeepColorAware
         ),
         Property::AE_Effect_Global_OutFlags_2(flags2),
-        Property::AE_Effect_Match_Name("TMFX TomoTrackNativeCheck"),
+        Property::AE_Effect_Match_Name("TMFX TomoTrackROISelect"),
         Property::AE_Reserved_Info(0),
         Property::AE_Effect_Support_URL("https://github.com/tomasguidomedina-dot/TomoTrackAI"),
     ]);

@@ -1,0 +1,57 @@
+<!doctype html><html lang="es"><head><meta charset="UTF-8"><title>TomoTrackAI</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;min-width:285px;background:#1d2229;color:#e4ebf0;font:13px -apple-system,BlinkMacSystemFont,Arial,sans-serif}
+main{padding:16px}
+header{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #384451;padding:0 0 12px}
+header strong{font-size:18px;font-weight:750}
+header small{font-size:10px;letter-spacing:.5px;color:#92b9c1}
+h2{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.1px;color:#88a6af;margin:18px 0 9px}
+p{margin:8px 0 10px;color:#aabac4;font-size:12px;line-height:1.5}
+kbd{font-family:inherit;border:1px solid #57616c;padding:1px 4px;border-radius:3px;color:#e1edf0}
+button{background:#343e49;border:1px solid #596b78;color:#f6f9fa;border-radius:7px;font:inherit;padding:11px 8px;cursor:pointer;width:100%}
+button.primary{background:#0a7581;border-color:#1497a4;font-weight:700}
+button:hover:not(:disabled){filter:brightness(1.1)}
+button:disabled{opacity:.42;cursor:not-allowed}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0}
+#boot{font-size:11px;color:#92b9c1}
+#status{min-height:65px;border-radius:6px;padding:12px;background:#151a20;line-height:1.5;color:#c8e0e5;white-space:pre-wrap}
+#count{color:#86dfcf;font-size:11px;font-variant-numeric:tabular-nums}
+progress{width:100%;accent-color:#29c5b9;height:9px;margin:10px 0 5px}
+.note{padding:8px 10px;background:#282f39;border-left:2px solid #578c98;border-radius:4px}
+label{display:block;color:#c8d5da;font-size:12px;margin:8px 0}
+input[type="checkbox"]{accent-color:#26bbb4;vertical-align:middle}
+select{width:100%;background:#313a45;color:#e7f0f5;border:1px solid #637381;border-radius:6px;padding:9px;margin:5px 0 9px;font:inherit}
+#quality{color:#85d6cf;line-height:1.45;font-size:11px;margin:7px 0}
+footer{display:flex;justify-content:space-between;align-items:center;padding-top:10px}
+footer button{width:auto;padding:5px 9px;font-size:11px}
+</style></head><body><main>
+<header><strong>TomoTrackAI</strong><small>v0.4.0 · INTEL</small></header>
+<h2>01 · Dibujá tu máscara</h2>
+<p>Seleccioná el video en la línea de tiempo. Usá la <strong>Pluma</strong> (<kbd>G</kbd>) para dibujar una <strong>máscara cerrada</strong> alrededor del objeto. No necesitás agregar efectos.</p>
+<p class="note">El programa conserva el video completo: la máscara solo indica qué seguir.</p>
+<h2>02 · Movimientos a rastrear</h2>
+<label><input id="scaleTrack" type="checkbox" checked> Escala X / Y</label>
+<label><input id="rotationTrack" type="checkbox" checked> Rotación estimada con puntos ópticos</label>
+<p>La posición X/Y se rastrea siempre. Si la rotación no es fiable se conserva el último ángulo; no se inventan giros.</p>
+<h2>03 · Seguimiento y visor</h2>
+<label for="previewMode">Actualización de previsualización</label>
+<select id="previewMode">
+<option value="live">Supervisar — 1 fotograma, pausa de refresco</option>
+<option value="balanced">Equilibrado — 2 fotogramas por lote</option>
+<option value="fast">Rápido — 4 fotogramas por lote</option>
+</select>
+<button id="start" class="primary">▶ Iniciar / continuar tracking</button>
+<div class="grid"><button id="single">Avanzar 1 cuadro</button><button id="pause" disabled>⏸ Pausar</button></div>
+<progress id="bar" max="100" value="0"></progress>
+<div id="count">0 cuadros</div>
+<div id="quality">Confianza y giro: esperando seguimiento.</div>
+<h2>04 · Corregir y exportar</h2>
+<p>Si se desacomoda: pulsá <strong>Pausar</strong>, esperá el refresco del visor, corregí la máscara en el cuadro visible y elegí <strong>Aplicar corrección</strong>.</p>
+<p class="note">El cabezal y los keyframes se actualizan durante el análisis. AE puede terminar de dibujar el fotograma unos instantes después.</p>
+<div class="grid"><button id="correct" disabled>↺ Aplicar corrección</button><button id="null" disabled>◇ Crear Null</button></div>
+<button id="new">Nueva sesión</button>
+<h2>Estado</h2><div id="status">Preparando motor NanoTrack...</div>
+<div id="bridgeVersion" style="font-size:11px;color:#93b6c0;margin:7px 0">Comprobando puente de After Effects...</div>
+<footer><span id="boot">Comprobando inicio...</span><button id="reconnect">Reconectar</button></footer>
+</main><script src="./panel.js"></script></body></html>
