@@ -4,8 +4,10 @@
 var tomoMask = tomoMask || {};
 (function(){
 var TAG="TomoTrackAI - OBJETIVO", state={run:"",lastFrame:-1};
+var BUILD_ID="mask-0.3.2-bridge-20261012";
 function json(v){return JSON.stringify(v);}
-function fail(e){return json({ok:false,error:String(e.message||e)});}
+function fail(e){return json({ok:false,error:String(e.message||e),bridge_id:BUILD_ID});}
+tomoMask.version=function(){return json({ok:true,version:"0.3.2",bridge_id:BUILD_ID});};
 function comp(){var x=app.project&&app.project.activeItem;if(!(x instanceof CompItem))throw Error("Abrí una composición de After Effects.");return x;}
 function layer(){
  var c=comp(),s=c.selectedLayers;
@@ -124,7 +126,7 @@ tomoMask.applyProgress=function(path){var undo=false;try{
     // Por eso los lotes de 2+ fotogramas generaban un falso error de secuencia.
     if(sample.frame<=state.lastFrame)continue;
     if(state.lastFrame>=0&&sample.frame>state.lastFrame+1)
-       throw Error("Faltan cuadros entre "+state.lastFrame+" y "+sample.frame+".");
+       throw Error("v0.3.2: Faltan cuadros entre "+state.lastFrame+" y "+sample.frame+".");
     var t=timeOf(d,sample);
     if(t<0||t>=z.c.duration||t<z.l.inPoint-0.0001||t>z.l.outPoint+0.0001)continue;
     var anchor=anchorFor(d,sample.frame);
