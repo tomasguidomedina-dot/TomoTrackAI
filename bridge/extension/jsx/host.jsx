@@ -1,185 +1,180 @@
-/* TomoTrackAI v0.2 — Bridge de NanoTrack al efecto NATIVO ROI Select.
-   Solo orquesta el motor externo; imagen y ROI vienen del .plugin Rust.
-   Compatible ExtendScript de After Effects 2024. */
-var tomoBridge = tomoBridge || {};
+/* TomoTrackAI v0.3: UNA extensión AE, máscara nativa dibujada con pluma.
+   No necesita TomoTrack ROI Select.plugin ni un efecto adicional.
+   El contorno de máscara se anima, modo NONE para no recortar el vídeo. */
+var tomoMask = tomoMask || {};
 (function(){
-var MATCH="TMFX TomoTrackROISelect", LABEL="TomoTrack ROI Select";
-function q(x){return '"'+String(x).replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/\r/g,'\\r').replace(/\n/g,'\\n')+'"';}
-function n(x){var v=Number(x);return isFinite(v)?String(v):"0";}
-function err(e){return '{"ok":false,"error":'+q(e.message||String(e))+'}';}
-function comp(){var c=app.project&&app.project.activeItem;if(!(c instanceof CompItem))throw Error("Abrí una composición de After Effects.");return c;}
-function fx(l){
-    if(!(l instanceof AVLayer))return null;
-    var all=l.property("ADBE Effect Parade");
-    if(!all)return null;
-    for(var i=1;i<=all.numProperties;i++){
-        var p=all.property(i);
-        if(p.matchName===MATCH||p.name===LABEL)return p;
-    }
-    return null;
+var TAG="TomoTrackAI - OBJETIVO", state={run:"",lastFrame:-1};
+function json(v){return JSON.stringify(v);}
+function fail(e){return json({ok:false,error:String(e.message||e)});}
+function comp(){var x=app.project&&app.project.activeItem;if(!(x instanceof CompItem))throw Error("Abrí una composición de After Effects.");return x;}
+function layer(){
+ var c=comp(),s=c.selectedLayers;
+ if(s.length!==1)throw Error("Seleccioná una sola capa de video en la línea de tiempo.");
+ var l=s[0];
+ if(!(l instanceof AVLayer)||!l.hasVideo||!(l.source instanceof FootageItem)||
+ !l.source.file||!l.source.file.exists)throw Error("Por ahora se necesita una capa de video de archivo (no una precomposición).");
+ if(l.timeRemapEnabled||Math.abs(l.stretch-100)>.01||l.threeDLayer)
+ throw Error("Se necesita una capa 2D, sin remapeo ni cambio de velocidad.");
+ return {c:c,l:l};
 }
-function picked(){
-    var c=comp(),s=c.selectedLayers,layer=null;
-    if(s.length===1&&fx(s[0]))layer=s[0];
-    if(!layer){for(var i=1;i<=c.numLayers;i++){
-        var x=c.layer(i);
-        if(fx(x)){if(layer)throw Error("Hay varias capas con ROI Select; seleccioná la que quieras seguir.");layer=x;}
-    }}
-    if(!layer)throw Error("Seleccioná una capa que tenga aplicado TomoTrack ROI Select.");
-    if(!layer.hasVideo || !(layer.source instanceof FootageItem)||
-       !(layer.source.file instanceof File)||!layer.source.file.exists)
-        throw Error("Esta fase necesita video de archivo. No admite precomposiciones.");
-    if(layer.timeRemapEnabled||Math.abs(layer.stretch-100)>.01||layer.threeDLayer)
-        throw Error("Usá una capa 2D sin cambio de velocidad ni remapeo de tiempo.");
-    return {c:c,l:layer,f:fx(layer)};
+function masks(l){return l.property("ADBE Mask Parade");}
+function chosen(z,allowUnmarked){
+ var m=masks(z.l);if(!m||!m.numProperties)throw Error("Dibujá una máscara cerrada sobre el objeto con la herramienta Pluma (G).");
+ var tagged=[],selected=[],all=[],i,p;
+ for(i=1;i<=m.numProperties;i++){p=m.property(i);if(p.matchName!=="ADBE Mask Atom")continue;all.push(p);
+ if(p.name===TAG)tagged.push(p);
+ try{if(p.selected||p.property("ADBE Mask Shape").selected)selected.push(p);}catch(ignore){}
+ }
+ if(selected.length===1)return selected[0];
+ if(tagged.length===1)return tagged[0];
+ if(allowUnmarked&&all.length===1)return all[0];
+ throw Error("Hay varias máscaras: seleccioná una máscara en la línea de tiempo.");
 }
-function readSelection(z,time){
-    var pt=z.f.property(1).valueAtTime(time,false);
-    var w=z.f.property(2).valueAtTime(time,false);
-    var h=z.f.property(3).valueAtTime(time,false);
-    var b={x:pt[0]-w/2,y:pt[1]-h/2,w:w,h:h};
-    if(w<12||h<12||b.x<0||b.y<0||
-       b.x+w>z.l.source.width||b.y+h>z.l.source.height)
-       throw Error("El recuadro esta fuera del video; movelo o reducí tamaño.");
-    return b;
+function pointArray(a){var out=[],i;for(i=0;i<a.length;i++)out.push([Number(a[i][0]),Number(a[i][1])]);return out;}
+function shapeData(sh){return {vertices:pointArray(sh.vertices),inTangents:pointArray(sh.inTangents),
+ outTangents:pointArray(sh.outTangents),closed:!!sh.closed};}
+function bounds(points){
+ if(!points||points.length<3)throw Error("La máscara debe tener al menos tres puntos.");
+ var loX=Infinity,loY=Infinity,hiX=-Infinity,hiY=-Infinity;
+ for(var i=0;i<points.length;i++){
+ var x=Number(points[i][0]),y=Number(points[i][1]);
+ if(!isFinite(x)||!isFinite(y))throw Error("La máscara tiene vértices inválidos.");
+ loX=Math.min(loX,x);loY=Math.min(loY,y);hiX=Math.max(hiX,x);hiY=Math.max(hiY,y);
+ }
+ return {x:loX,y:loY,w:hiX-loX,h:hiY-loY};
 }
-function load(path){
-    var file=new File(path);
-    if(!file.exists||!file.open("r"))throw Error("No encuentro los datos de NanoTrack.");
-    var raw=file.read();file.close();
-    var d=JSON.parse(raw);
-    if(!d.samples||!d.samples.length)throw Error("Trayectoria vacia.");
-    return d;
+function inspect(){
+ var z=layer(),m=chosen(z,true),p=m.property("ADBE Mask Shape");
+ var sh=p.valueAtTime(z.c.time,false),s=shapeData(sh),b=bounds(s.vertices);
+ if(!s.closed)throw Error("Cerrá la máscara antes de iniciar el seguimiento.");
+ if(b.w<12||b.h<12)throw Error("La máscara es demasiado pequeña para rastrear.");
+ if(b.x<0||b.y<0||b.x+b.w>z.l.source.width||b.y+b.h>z.l.source.height)
+ throw Error("La máscara debe quedar completamente dentro del fotograma.");
+ return {z:z,m:m,p:p,sh:s,b:b};
 }
+function context(z,m){
+ return {video:z.l.source.file.fsName,comp_name:z.c.name,layer_name:z.l.name,
+ layer_start:z.l.startTime,mask_name:m.name,source_width:z.l.source.width,
+ source_height:z.l.source.height};
+}
+function load(path){var f=new File(path);if(!f.exists||!f.open("r"))throw Error("No puedo leer el tracking.");
+ var d=JSON.parse(f.read());f.close();if(!d.samples||!d.samples.length)throw Error("Tracking sin muestras.");return d;}
 function locate(d){
-    var z=picked();
-    if(z.c.name!==d.comp_name||z.l.name!==d.layer_name||
-       z.l.source.file.fsName!==d.source_file||
-       Math.abs(z.l.startTime-d.layer_start)>.002)
-       throw Error("Los datos no corresponden a la capa seleccionada.");
-    return z;
+ var z=layer(),q=context(z,chosen(z,true));
+ if(d.source_file!==q.video||d.comp_name!==q.comp_name||
+ d.layer_name!==q.layer_name||Math.abs(d.layer_start-q.layer_start)>.001)
+ throw Error("El tracking pertenece a otra capa; seleccioná la capa original.");
+ return {z:z,mask:chosen(z,true)};
 }
-function clearKeys(prop){for(var k=prop.numKeys;k>=1;k--)prop.removeKey(k);}
-/* Acceso unico: se invoca desde la ventana TomoTrackAI.
-   Prepara el efecto nativo automaticamente en la capa elegida. */
-tomoBridge.prepare=function(){var undo=false;try{
-    var c=comp(),s=c.selectedLayers;
-    if(s.length!==1)throw Error("Seleccioná exactamente una capa de video en la línea de tiempo.");
-    var l=s[0];
-    if(!(l instanceof AVLayer)||!l.hasVideo)
-       throw Error("La capa elegida no es una capa de video.");
-    if(!(l.source instanceof FootageItem)||!(l.source.file instanceof File)||
-       !l.source.file.exists)
-       throw Error("Por ahora seleccioná un video de archivo (no una precomposición).");
-    if(l.timeRemapEnabled||Math.abs(l.stretch-100)>.01||l.threeDLayer)
-       throw Error("Usá una capa 2D sin remapeo temporal ni cambio de velocidad.");
-    var effect=fx(l),added=false;
-    if(!effect){
-       app.beginUndoGroup("TomoTrackAI - Preparar selección");undo=true;
-       var parade=l.property("ADBE Effect Parade");
-       if(!parade||!parade.canAddProperty(MATCH))
-           throw Error("No encuentro el componente nativo TomoTrack ROI Select. Reinstalá TomoTrackAI.");
-       effect=parade.addProperty(MATCH);
-       if(!effect)throw Error("After Effects no pudo añadir el componente de selección.");
-       added=true;
-    }
-    l.selected=true;
-    try{effect.property(1).selected=true;}catch(ignore){}
-    return '{"ok":true,"added":'+(added?"true":"false")+
-           ',"layer_name":'+q(l.name)+
-           ',"width":'+n(effect.property(2).value)+
-           ',"height":'+n(effect.property(3).value)+
-           ',"show":'+(effect.property(4).value?"true":"false")+'}';
-}catch(e){return err(e);}finally{if(undo)app.endUndoGroup();}};
-tomoBridge.region=function(){try{
-    var z=picked();
-    return '{"ok":true,"width":'+n(z.f.property(2).value)+
-           ',"height":'+n(z.f.property(3).value)+
-           ',"show":'+(z.f.property(4).value?"true":"false")+'}';
-}catch(e){return err(e);}};
-tomoBridge.setRegion=function(width,height,show){var undo=false;try{
-    var z=picked(),w=Number(width),h=Number(height);
-    if(!isFinite(w)||!isFinite(h)||w<16||h<16||w>3000||h>3000)
-       throw Error("El ancho y alto del recuadro deben estar entre 16 y 3000 píxeles.");
-    if(z.f.property(2).numKeys||z.f.property(3).numKeys)
-       throw Error("Esta selección ya está animada. Usá Nueva sesión antes de cambiar el tamaño.");
-    app.beginUndoGroup("TomoTrackAI - Ajustar selección");undo=true;
-    z.f.property(2).setValue(w);
-    z.f.property(3).setValue(h);
-    z.f.property(4).setValue(show ? 1 : 0);
-    z.l.selected=true;
-    try{z.f.property(1).selected=true;}catch(ignore){}
-    return '{"ok":true,"width":'+n(w)+',"height":'+n(h)+
-           ',"show":'+(show?"true":"false")+'}';
-}catch(e){return err(e);}finally{if(undo)app.endUndoGroup();}};
-tomoBridge.selection=function(){try{
-    var z=picked(),c=z.c,l=z.l;
-    if(c.time<l.inPoint||c.time>=l.outPoint)
-        throw Error("Colocá el cabezal dentro del clip.");
-    var b=readSelection(z,c.time);
-    return '{"ok":true,"video":'+q(l.source.file.fsName)+
-       ',"comp_name":'+q(c.name)+',"layer_name":'+q(l.name)+
-       ',"layer_start":'+n(l.startTime)+',"source_width":'+n(l.source.width)+
-       ',"source_height":'+n(l.source.height)+
-       ',"start_seconds":'+n(c.time-l.startTime)+
-       ',"end_seconds":'+n(l.outPoint-l.startTime)+
-       ',"bbox":{"x":'+n(b.x)+',"y":'+n(b.y)+',"w":'+n(b.w)+',"h":'+n(b.h)+'}}';
-}catch(e){return err(e);}};
-tomoBridge.applyProgress=function(path){var undo=false;try{
-    var d=load(path),z=locate(d),c=z.c,l=z.l;
-    if(d.samples.length>9000)throw Error("Demasiados fotogramas, dividí el seguimiento en clips.");
-    var time=[],points=[],sizesW=[],sizesH=[],rx=d.source_width/d.width,ry=d.source_height/d.height;
-    var previous=-1;
-    for(var i=0;i<d.samples.length;i++){
-        var s=d.samples[i],t=Number(d.layer_start)+Number(s.source_time);
-        if(t<0||t>=c.duration||t<=previous+1e-7)continue;
-        previous=t;
-        time.push(t);points.push([s.cx*rx,s.cy*ry]);
-        sizesW.push(s.bbox[2]*rx);sizesH.push(s.bbox[3]*ry);
-    }
-    if(!time.length)throw Error("No hay keyframes validos");
-    app.beginUndoGroup("TomoTrackAI - Trayectoria NanoTrack");undo=true;
-    // Es el efecto NATIVO quien dibuja el ROI interpolado.
-    var p=z.f.property(1),w=z.f.property(2),h=z.f.property(3);
-    clearKeys(p);clearKeys(w);clearKeys(h);
-    p.setValuesAtTimes(time,points);
-    w.setValuesAtTimes(time,sizesW);
-    h.setValuesAtTimes(time,sizesH);
-    c.time=time[time.length-1];
-    return '{"ok":true,"keyframes":'+n(time.length)+'}';
-}catch(e){return err(e);}finally{if(undo)app.endUndoGroup();}};
-tomoBridge.currentCorrection=function(){try{
-    var z=picked(),b=readSelection(z,z.c.time);
-    return '{"ok":true,"source_seconds":'+n(z.c.time-z.l.startTime)+
-       ',"bbox":{"x":'+n(b.x)+',"y":'+n(b.y)+',"w":'+n(b.w)+',"h":'+n(b.h)+'}}';
-}catch(e){return err(e);}};
-tomoBridge.makeNull=function(path){var undo=false;try{
-    var d=load(path),z=locate(d),c=z.c,l=z.l;
-    if(d.samples.length<2)throw Error("Seguí al menos dos cuadros.");
-    var rx=d.source_width/d.width,ry=d.source_height/d.height;
-    var times=[],values=[],prev=-1;
-    for(var i=0;i<d.samples.length;i++){
-        var s=d.samples[i],t=Number(d.layer_start)+Number(s.source_time);
-        if(t>=0&&t<=c.duration&&t>prev+1e-7){
-           times.push(t);values.push([s.cx*rx,s.cy*ry]);prev=t;
-        }
-    }
-    if(times.length<2)throw Error("No hay suficientes muestras.");
-    app.beginUndoGroup("TomoTrackAI - Crear Null");undo=true;
-    var nullL=c.layers.addNull();nullL.name="TomoTrack AI - "+l.name;
-    nullL.threeDLayer=false;nullL.parent=null;
-    var p=nullL.property("ADBE Transform Group").property("ADBE Position");
-    p.setValuesAtTimes(times,values);
-    // Resuelve el movimiento de la capa original (posición, escala, rotación).
-    p.expression="thisComp.layer("+l.index+").toComp(value);";
-    var converted=[];for(var j=0;j<times.length;j++){
-       var v=p.valueAtTime(times[j],false);converted.push([v[0],v[1]]);
-    }
-    p.expression="";p.setValuesAtTimes(times,converted);
-    nullL.property("ADBE Transform Group").property("ADBE Scale").setValue([100,100]);
-    nullL.inPoint=Math.max(0,times[0]);
-    nullL.outPoint=Math.min(c.duration,times[times.length-1]+1/d.fps);
-    nullL.selected=true;
-    return '{"ok":true,"keyframes":'+n(times.length)+',"name":'+q(nullL.name)+'}';
-}catch(e){return err(e);}finally{if(undo)app.endUndoGroup();}};
+function timeOf(d,s){return Number(d.layer_start)+Number(s.source_time);}
+function moved(anchor,s){
+ var src=anchor.shape,base=anchor.bbox;
+ var sh=new Shape(),cX=Number(s.cx)*(Number(s.source_scale_x)||1),cY=Number(s.cy)*(Number(s.source_scale_y)||1);
+ var baseCX=base.x+base.w/2,baseCY=base.y+base.h/2;
+ var scaleX=s.bbox[2]*(Number(s.source_scale_x)||1)/base.w;
+ var scaleY=s.bbox[3]*(Number(s.source_scale_y)||1)/base.h;
+ var verts=[],ins=[],outs=[];
+ for(var i=0;i<src.vertices.length;i++){
+    var v=src.vertices[i],iv=src.inTangents[i],ov=src.outTangents[i];
+    verts.push([cX+(v[0]-baseCX)*scaleX,cY+(v[1]-baseCY)*scaleY]);
+    ins.push([iv[0]*scaleX,iv[1]*scaleY]);outs.push([ov[0]*scaleX,ov[1]*scaleY]);
+ }
+ sh.vertices=verts;sh.inTangents=ins;sh.outTangents=outs;sh.closed=true;
+ return sh;
+}
+function anchorFor(d,frame){
+ var anchors=d.anchors||[],a=null;
+ for(var i=0;i<anchors.length;i++)if(anchors[i].frame<=frame)a=anchors[i];else break;
+ if(!a)throw Error("No se encontró máscara de referencia para el fotograma "+frame);
+ return a;
+}
+function removeFrom(p,t){
+ for(var i=p.numKeys;i>=1;i--)if(p.keyTime(i)>=t-0.000001)p.removeKey(i);
+}
+tomoMask.useMask=function(){var undo=false;try{
+ var a=inspect(),z=a.z,m=a.m,p=a.p;
+ if(z.c.time<z.l.inPoint||z.c.time>=z.l.outPoint)
+ throw Error("Ubicá el cabezal dentro del video.");
+ if(p.numKeys>1)throw Error("Esta máscara ya tiene animación. Dibujá otra máscara para iniciar una sesión nueva.");
+ app.beginUndoGroup("TomoTrackAI - Preparar máscara");undo=true;
+ // NONE mantiene el fotograma ORIGINAL completo; solo se ve el contorno de AE.
+ m.maskMode=MaskMode.NONE;
+ m.name=TAG;
+ z.l.selected=true;
+ p.selected=true;
+ state={run:"",lastFrame:-1};
+ var job=context(z,m);
+ job.start_seconds=z.c.time-z.l.startTime;
+ job.end_seconds=z.l.outPoint-z.l.startTime;
+ job.bbox=a.b;job.mask_shape=a.sh;
+ job.run_id=String(new Date().getTime())+"-"+Math.floor(Math.random()*100000);
+ return json({ok:true,job:job,vertices:a.sh.vertices.length});
+}catch(e){return fail(e);}finally{if(undo)app.endUndoGroup();}};
+tomoMask.applyProgress=function(path){var undo=false;try{
+ var d=load(path),r=locate(d),z=r.z,p=r.mask.property("ADBE Mask Shape");
+ var ratioX=d.source_width/d.width,ratioY=d.source_height/d.height;
+ // Cada snapshot incorpora sólo los fotogramas nuevos: no reescribe miles de claves anteriores.
+ if(d.run_id!==state.run){state={run:d.run_id,lastFrame:-1};}
+ var applied=0,lastT=z.c.time,lastFrame=state.lastFrame;
+ app.beginUndoGroup("TomoTrackAI - Seguimiento en vivo");undo=true;
+ for(var i=0;i<d.samples.length;i++){
+    var sample=d.samples[i];
+    if(sample.frame<=lastFrame)continue;
+    if(sample.frame>lastFrame+1&&lastFrame>=0)throw Error("Secuencia de tracking incompleta.");
+    var t=timeOf(d,sample);
+    if(t<0||t>=z.c.duration||t<z.l.inPoint-0.0001||t>z.l.outPoint+0.0001)continue;
+    var anchor=anchorFor(d,sample.frame);
+    var scaled={cx:sample.cx,cy:sample.cy,bbox:sample.bbox,
+                source_scale_x:ratioX,source_scale_y:ratioY};
+    p.setValueAtTime(t,moved(anchor,scaled));
+    state.lastFrame=sample.frame;
+    applied++;lastT=t;
+ }
+ if(applied){
+   // Provoca refresco del visor de AE después de cada bloque pequeño.
+   z.c.time=lastT;z.l.selected=true;p.selected=true;
+ }
+ return json({ok:true,applied:applied,total:d.samples.length,last_time:lastT});
+}catch(e){return fail(e);}finally{if(undo)app.endUndoGroup();}};
+tomoMask.correction=function(){try{
+ var a=inspect(),z=a.z,m=a.m;
+ return json({ok:true,source_seconds:z.c.time-z.l.startTime,bbox:a.b,
+              mask_shape:a.sh});
+}catch(e){return fail(e);}};
+tomoMask.rewind=function(path){var undo=false;try{
+ var d=load(path),r=locate(d),p=r.mask.property("ADBE Mask Shape");
+ var frame=d.samples[d.samples.length-1].frame,t=timeOf(d,d.samples[d.samples.length-1]);
+ app.beginUndoGroup("TomoTrackAI - Corregir trayectoria");undo=true;
+ removeFrom(p,t);
+ state.lastFrame=frame-1;
+ return json({ok:true,frame:frame});
+}catch(e){return fail(e);}finally{if(undo)app.endUndoGroup();}};
+tomoMask.makeNull=function(path){var undo=false;try{
+ var d=load(path),r=locate(d),z=r.z,l=z.l,c=z.c;
+ if(d.samples.length<2)throw Error("Seguí al menos dos fotogramas.");
+ var rx=d.source_width/d.width,ry=d.source_height/d.height;
+ var times=[],values=[],prev=-1;
+ for(var i=0;i<d.samples.length;i++){
+ var s=d.samples[i],t=timeOf(d,s);
+ if(t>=0&&t<=c.duration&&t>prev+0.0000001){
+ times.push(t);values.push([s.cx*rx,s.cy*ry]);prev=t;
+ }
+ }
+ if(times.length<2)throw Error("No hay suficientes muestras válidas.");
+ app.beginUndoGroup("TomoTrackAI - Crear Null");undo=true;
+ var nullL=c.layers.addNull();nullL.name="TomoTrackAI - "+l.name;
+ nullL.threeDLayer=false;nullL.parent=null;
+ var p=nullL.property("ADBE Transform Group").property("ADBE Position");
+ p.setValuesAtTimes(times,values);
+ p.expression="thisComp.layer("+l.index+").toComp(value);";
+ var converted=[];for(var k=0;k<times.length;k++){
+ var v=p.valueAtTime(times[k],false);converted.push([v[0],v[1]]);
+ }
+ p.expression="";p.setValuesAtTimes(times,converted);
+ nullL.property("ADBE Transform Group").property("ADBE Scale").setValue([100,100]);
+ nullL.inPoint=Math.max(0,times[0]);
+ nullL.outPoint=Math.min(c.duration,times[times.length-1]+1/d.fps);
+ nullL.selected=true;
+ return json({ok:true,keyframes:times.length,name:nullL.name});
+}catch(e){return fail(e);}finally{if(undo)app.endUndoGroup();}};
 })();
