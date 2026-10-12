@@ -6,7 +6,8 @@ var cep=window.__adobe_cep__;
 var req=(window.cep_node&&window.cep_node.require)||window.require||window.nodeRequire;
 var fs,os,path,spawn,readline,proc=null,ready=false,starting=null,queue=[],job=null;
 var resultFile="",busy=false,stopping=false,hasData=false,bootStart=0,clock=null;
-var EXPECTED_BRIDGE="mask-0.3.2-bridge-20261012",bridgeVerified=false;
+var lastScore=1,lastRotationGood=true;
+var EXPECTED_BRIDGE="mask-0.4.0-bridge-20261012",bridgeVerified=false;
 function status(s){el("status").textContent=String(s);}
 function controls(){
   el("start").disabled=busy;
@@ -16,6 +17,9 @@ function controls(){
   el("null").disabled=busy||!hasData;
   el("new").disabled=busy;
   el("reconnect").disabled=busy||ready;
+  el("scaleTrack").disabled=!!job;
+  el("rotationTrack").disabled=!!job;
+  el("previewMode").disabled=busy;
 }
 function lock(v){busy=v;controls();}
 function bridge(method,args){
@@ -34,7 +38,7 @@ async function verifyBridge(){
   try{
     var v=await bridge("version",[]);
     if(v.bridge_id!==EXPECTED_BRIDGE)throw Error("Puente "+String(v.version||"?")+
-       " (esperado 0.3.2).");
+       " (esperado 0.4).");
     bridgeVerified=true;
     el("bridgeVersion").textContent="Puente AE: v"+v.version+" verificado";
     return v;
@@ -42,7 +46,7 @@ async function verifyBridge(){
     bridgeVerified=false;
     el("bridgeVersion").textContent="Puente AE: versión sin verificar";
     throw Error("After Effects ejecuta un puente viejo o incompatible. "+
-      "Cerrá completamente AE, aplicá el parche v0.3.2 y reabrilo. Detalle: "+e.message);
+      "Cerrá completamente AE, reinstalá TomoTrackAI v0.4 y reabrilo. Detalle: "+e.message);
   }
 }
 function disconnect(reason){
@@ -134,10 +138,18 @@ async function snapshot(){
  await rpc({cmd:"snapshot",output:resultFile});
  return bridge("applyProgress",[resultFile]);
 }
+function previewPolicy(){
+  var v=el("previewMode").value;
+  // No guarantees a rendered frame: yield the main thread between analysis steps.
+  return v==="fast"?{batch:4,delay:35}:v==="balanced"?{batch:2,delay:110}:{batch:1,delay:210};
+}
+function waitForPreview(ms){return new Promise(function(resolve){setTimeout(resolve,ms);});}
 async function startSession(){
  var selection=await bridge("useMask",[]);
  job=selection.job;
  job.confidence_threshold=0.24;
+ job.track_scale=el("scaleTrack").checked;
+ job.track_rotation=el("rotationTrack").checked;
  var r=await rpc({cmd:"init",job:job});
  job.fps=r.fps;
  hasData=true;
@@ -156,11 +168,20 @@ async function track(continuous){
    var r;
    do{
      // Lotes pequeños: los keyframes y la máscara aparecen mientras se rastrea.
-     r=await rpc({cmd:"step",count:continuous?2:1});
+     var policy=previewPolicy();
+     r=await rpc({cmd:"step",count:continuous?policy.batch:1});
      if(r.new&&r.new.length){
        await snapshot();
        progress(r);
+       var latest=r.new[r.new.length-1];
+       lastScore=latest.confidence;
+       lastRotationGood=!!latest.rotation_valid;
+       el("quality").textContent="Confianza NanoTrack "+Math.round(lastScore*100)+" % · "+
+         (job.track_rotation?(lastRotationGood?"Giro detectado":"Giro: ángulo mantenido"):"Rotación desactivada")+
+         " · cuadro "+latest.frame+" solicitado al visor";
+       await waitForPreview(continuous?policy.delay:180);
      }
+     if(stopping){status("Pausado en el último fotograma solicitado. Esperá a que el visor termine de dibujarlo antes de corregir.");break;}
      if(r.needs_correction){
        status("El objeto perdió confianza. Ajustá la máscara en el fotograma visible y pulsá Corregir.");
        break;
@@ -174,7 +195,7 @@ async function track(continuous){
        break;
      }
      status("Siguiendo el objeto... "+r.total+" cuadros. Pausar para ajustar.");
-     await new Promise(function(done){setTimeout(done,10);});
+     await waitForPreview(0);
    }while(!stopping);
    if(stopping)status("Track pausado. Mové o ajustá la máscara aquí y pulsá Corregir.");
  }catch(e){status("Error: "+e.message);}
@@ -201,7 +222,7 @@ async function nullFromMask(){
    await rpc({cmd:"snapshot",output:resultFile});
    await verifyBridge();
    var r=await bridge("makeNull",[resultFile]);
-   status("Null creado correctamente: "+r.keyframes+" keyframes.");
+   status("Null creado: "+r.keyframes+" cuadros, Position"+(r.scale?", Scale":"")+(r.rotation?", Rotation":"")+".");
  }catch(e){status("Error creando Null: "+e.message);}
  finally{lock(false);}
 }
@@ -212,6 +233,7 @@ el("correct").onclick=correct;
 el("null").onclick=nullFromMask;
 el("new").onclick=function(){
  if(busy)return;job=null;hasData=false;el("count").textContent="0 cuadros";el("bar").value=0;
+ el("quality").textContent="Confianza y estimación de giro aparecerán durante el seguimiento.";
  status("Nueva sesión: dibujá una máscara nueva o elegí otra capa.");
  controls();
 };
