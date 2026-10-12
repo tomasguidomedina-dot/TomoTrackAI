@@ -60,7 +60,7 @@ jobs:
           PLIST
           plutil -lint "$DEST/Contents/Info.plist"
           file "$DEST/Contents/MacOS/TomoTrack_Native_Check"
-          lipo -verify_arch x86_64 "$DEST/Contents/MacOS/TomoTrack_Native_Check"
+          lipo "$DEST/Contents/MacOS/TomoTrack_Native_Check" -verify_arch x86_64
           codesign --force --deep --sign - "$DEST"
           codesign --verify --verbose=2 "$DEST"
           cp scripts/Install_TomoTrack.command dist/
