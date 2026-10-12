@@ -3,11 +3,13 @@
    El contorno de máscara se anima, modo NONE para no recortar el vídeo. */
 var tomoMask = tomoMask || {};
 (function(){
-var TAG="TomoTrackAI - OBJETIVO", state={run:"",lastFrame:-1};
-var BUILD_ID="platetrack-0.6.2-bridge-20261012";
+var TAG="TomoTrackAI - OBJETIVO", state={run:"",lastFrame:-1}, pinState=null;
+var PIN_NAMES=["TomoTrackAI • 1 Superior izq.","TomoTrackAI • 2 Superior der.",
+               "TomoTrackAI • 3 Inferior der.","TomoTrackAI • 4 Inferior izq."];
+var BUILD_ID="platetrack-0.6.3-bridge-20261012";
 function json(v){return JSON.stringify(v);}
 function fail(e){return json({ok:false,error:String(e.message||e),bridge_id:BUILD_ID});}
-tomoMask.version=function(){return json({ok:true,version:"0.6.2",bridge_id:BUILD_ID});};
+tomoMask.version=function(){return json({ok:true,version:"0.6.3",bridge_id:BUILD_ID});};
 function comp(){var x=app.project&&app.project.activeItem;if(!(x instanceof CompItem))throw Error("Abrí una composición de After Effects.");return x;}
 function layer(){
  var c=comp(),s=c.selectedLayers;
@@ -112,7 +114,7 @@ tomoMask.useMask=function(){var undo=false;try{
  m.name=TAG;
  z.l.selected=true;
  p.selected=true;
- state={run:"",lastFrame:-1};
+ state={run:"",lastFrame:-1};pinState=null;
  var job=context(z,m);
  job.start_seconds=z.c.time-z.l.startTime;
  job.end_seconds=z.l.outPoint-z.l.startTime;
@@ -161,6 +163,104 @@ tomoMask.gotoLast=function(path){try{
  r.mask.property("ADBE Mask Shape").selected=true;
  return json({ok:true,frame:last.frame,source_time:last.source_time});
 }catch(e){return fail(e);}};
+
+
+// Native Adobe Point Control effects expose draggable crosshairs in the
+// Composition/Layer viewer (Effect Controls). These are temporary and use
+// original-footage LAYER PIXEL coordinates, NOT a separate plugin viewport.
+function pinFx(layer,index){
+ var fx=layer.property("ADBE Effect Parade");
+ if(!fx)throw Error("Esta capa no admite controles de efectos.");
+ for(var k=1;k<=fx.numProperties;k++){
+   var entry=fx.property(k);
+   if(entry.name===PIN_NAMES[index]&&entry.matchName==="ADBE Point Control")return entry;
+ }
+ return null;
+}
+function allPinFx(layer){
+ var arr=[];for(var i=0;i<4;i++){var f=pinFx(layer,i);if(!f)return null;arr.push(f);}
+ return arr;
+}
+function transformPinPoint(d,M,v){
+ var x=Number(v[0])*d.width/d.source_width,y=Number(v[1])*d.height/d.source_height;
+ var z=Number(M[2][0])*x+Number(M[2][1])*y+Number(M[2][2]);
+ if(!isFinite(z)||Math.abs(z)<0.0000001)throw Error("Matriz inválida al preparar los puntos.");
+ return [(Number(M[0][0])*x+Number(M[0][1])*y+Number(M[0][2]))/z*d.source_width/d.width,
+         (Number(M[1][0])*x+Number(M[1][1])*y+Number(M[1][2]))/z*d.source_height/d.height];
+}
+function ensurePinFrame(d,r){
+ if(d.tracking_mode!=="stabilize")throw Error("Solo disponible al estabilizar.");
+ var s=d.samples[d.samples.length-1];
+ if(!s.needs_correction)throw Error("No hay una pérdida de referencia que corregir.");
+ var t=timeOf(d,s);
+ if(Math.abs(r.z.c.time-t)>(0.45/Number(d.fps)))throw Error("Mové el cabezal al fotograma "+s.frame+" para fijar los puntos.");
+ return {last:s,time:t};
+}
+tomoMask.prepareCameraPins=function(path){var undo=false;try{
+ var d=load(path),r=locate(d),item=ensurePinFrame(d,r),l=r.z.l,c=r.z.c;
+ var fx=l.property("ADBE Effect Parade"),existing=allPinFx(l);
+ // Calling 'Mostrar puntos' never resets edits already made by the user.
+ if(pinState&&pinState.run===d.run_id&&pinState.frame===item.last.frame&&existing){
+   try{existing[0].selected=true;existing[0].property(1).selected=true;}catch(ignore){}
+   return json({ok:true,frame:item.last.frame,reused:true,controls:4});
+ }
+ var first=d.anchors[0];
+ if(!first||!first.shape||first.shape.vertices.length!==4)
+   throw Error("La máscara de referencia necesita cuatro esquinas.");
+ var pos=[];
+ for(var i=0;i<4;i++)pos.push(transformPinPoint(d,item.last.matrix,first.shape.vertices[i]));
+ app.beginUndoGroup("TomoTrackAI - Crear controles de corrección");undo=true;
+ // Only our namespaced temporary Point Control effects can be removed/reused.
+ // Stale effects from a previous interrupted session are updated, never duplicated.
+ var effects=[];
+ for(var j=0;j<4;j++){
+   var eff=pinFx(l,j);
+   if(!eff){eff=fx.addProperty("ADBE Point Control");eff.name=PIN_NAMES[j];}
+   effects.push(eff);
+   eff.property(1).setValue(pos[j]);
+ }
+ pinState={run:d.run_id,frame:item.last.frame,start:pos,layer:l};
+ l.selected=true;
+ try{effects[0].selected=true;effects[0].property(1).selected=true;}catch(ignore){}
+ c.time=item.time;
+ return json({ok:true,frame:item.last.frame,controls:4,reused:false});
+}catch(e){return fail(e);}finally{if(undo)app.endUndoGroup();}};
+tomoMask.readCameraPins=function(path){try{
+ var d=load(path),r=locate(d),item=ensurePinFrame(d,r);
+ if(!pinState||pinState.run!==d.run_id||pinState.frame!==item.last.frame)
+   throw Error("Primero pulsá Mostrar 4 puntos para preparar los controles.");
+ var arr=allPinFx(r.z.l);
+ if(!arr)throw Error("Falta un control de punto. Pulsá Mostrar 4 puntos.");
+ var vertices=[],changed=0;
+ for(var i=0;i<4;i++){
+   var v=arr[i].property(1).value;
+   if(!v||v.length<2||!isFinite(v[0])||!isFinite(v[1]))
+     throw Error("Punto "+(i+1)+" no válido.");
+   if(v[0]<0||v[1]<0||v[0]>d.source_width||v[1]>d.source_height)
+     throw Error("El punto "+(i+1)+" está fuera de los límites del video.");
+   vertices.push([Number(v[0]),Number(v[1])]);
+   if(Math.sqrt(Math.pow(v[0]-pinState.start[i][0],2)+
+                Math.pow(v[1]-pinState.start[i][1],2))>0.75)changed++;
+ }
+ if(!changed)throw Error("Primero mové las cruces de los cuatro puntos en Controles de efectos; después pulsá Aplicar corrección.");
+ var minx=Infinity,miny=Infinity,maxx=-Infinity,maxy=-Infinity;
+ for(var j=0;j<4;j++){
+   minx=Math.min(minx,vertices[j][0]);miny=Math.min(miny,vertices[j][1]);
+   maxx=Math.max(maxx,vertices[j][0]);maxy=Math.max(maxy,vertices[j][1]);
+ }
+ return json({ok:true,source_seconds:item.last.source_time,bbox:{
+   x:minx,y:miny,w:maxx-minx,h:maxy-miny},
+   mask_shape:{vertices:vertices,inTangents:[[0,0],[0,0],[0,0],[0,0]],
+               outTangents:[[0,0],[0,0],[0,0],[0,0]],closed:true}});
+}catch(e){return fail(e);}};
+tomoMask.clearCameraPins=function(){var undo=false;try{
+ var l=pinState?pinState.layer:null;
+ if(!l){return json({ok:true,removed:0});}
+ app.beginUndoGroup("TomoTrackAI - Limpiar controles de corrección");undo=true;
+ var n=0;for(var i=3;i>=0;i--){var f=pinFx(l,i);if(f){f.remove();n++;}}
+ pinState=null;
+ return json({ok:true,removed:n});
+}catch(e){return fail(e);}finally{if(undo)app.endUndoGroup();}};
 
 tomoMask.correction=function(){try{
  var a=inspect(),z=a.z,m=a.m;
