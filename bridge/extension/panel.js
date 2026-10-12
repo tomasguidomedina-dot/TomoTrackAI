@@ -107,7 +107,7 @@ function progress(r){
  el("count").textContent=r.total+" cuadros";
  if(job){
   var end=job.end_seconds-job.start_seconds;
-  var done=((r.frame/r.fps)-job.start_seconds);
+  var done=((r.frame/job.fps)-job.start_seconds);
   if(end>0)el("bar").value=Math.max(0,Math.min(100,100*done/end));
  }
 }
@@ -120,6 +120,7 @@ async function startSession(){
  job=selection.job;
  job.confidence_threshold=0.24;
  var r=await rpc({cmd:"init",job:job});
+ job.fps=r.fps;
  hasData=true;
  await snapshot();
  el("count").textContent="1 cuadro";
