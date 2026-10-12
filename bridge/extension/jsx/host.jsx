@@ -115,12 +115,16 @@ tomoMask.applyProgress=function(path){var undo=false;try{
  var ratioX=d.source_width/d.width,ratioY=d.source_height/d.height;
  // Cada snapshot incorpora sólo los fotogramas nuevos: no reescribe miles de claves anteriores.
  if(d.run_id!==state.run){state={run:d.run_id,lastFrame:-1};}
- var applied=0,lastT=z.c.time,lastFrame=state.lastFrame;
+ var applied=0,lastT=z.c.time;
  app.beginUndoGroup("TomoTrackAI - Seguimiento en vivo");undo=true;
  for(var i=0;i<d.samples.length;i++){
     var sample=d.samples[i];
-    if(sample.frame<=lastFrame)continue;
-    if(sample.frame>lastFrame+1&&lastFrame>=0)throw Error("Secuencia de tracking incompleta.");
+    // Comprobación incremental: actualizar la referencia tras CADA cuadro.
+    // Antes se usaba una copia 'lastFrame' que no cambiaba durante el lote.
+    // Por eso los lotes de 2+ fotogramas generaban un falso error de secuencia.
+    if(sample.frame<=state.lastFrame)continue;
+    if(state.lastFrame>=0&&sample.frame>state.lastFrame+1)
+       throw Error("Faltan cuadros entre "+state.lastFrame+" y "+sample.frame+".");
     var t=timeOf(d,sample);
     if(t<0||t>=z.c.duration||t<z.l.inPoint-0.0001||t>z.l.outPoint+0.0001)continue;
     var anchor=anchorFor(d,sample.frame);
