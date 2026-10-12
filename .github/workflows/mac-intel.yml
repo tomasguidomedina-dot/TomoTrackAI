@@ -1,0 +1,64 @@
+name: TomoTrack Native macOS Intel
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15-intel
+    timeout-minutes: 35
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "12.0"
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin
+
+      - name: Build native Intel effect
+        run: cargo build --locked --release --target x86_64-apple-darwin
+
+      - name: Package authentic AE bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROFILE="target/x86_64-apple-darwin/release"
+          DEST="dist/TomoTrack_Native_Check.plugin"
+          mkdir -p "$DEST/Contents/MacOS" "$DEST/Contents/Resources"
+          test -s "$PROFILE/libtomotrack_native.dylib"
+          test -s "$PROFILE/tomotrack_native.rsrc"
+          test -s "$PROFILE/tomotrack_native_PkgInfo"
+          test -s "$PROFILE/tomotrack_native_Info.plist"
+          cp "$PROFILE/libtomotrack_native.dylib" "$DEST/Contents/MacOS/TomoTrack_Native_Check"
+          cp "$PROFILE/tomotrack_native.rsrc" "$DEST/Contents/Resources/TomoTrack_Native_Check.rsrc"
+          cp "$PROFILE/tomotrack_native_PkgInfo" "$DEST/Contents/PkgInfo"
+          cp "$PROFILE/tomotrack_native_Info.plist" "$DEST/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier com.tomomedina.TomoTrackNativeCheck' "$DEST/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Set :CFBundleExecutable TomoTrack_Native_Check' "$DEST/Contents/Info.plist"
+          plutil -lint "$DEST/Contents/Info.plist"
+          file "$DEST/Contents/MacOS/TomoTrack_Native_Check"
+          lipo -verify_arch x86_64 "$DEST/Contents/MacOS/TomoTrack_Native_Check"
+          codesign --force --deep --sign - "$DEST"
+          codesign --verify --verbose=2 "$DEST"
+          cp scripts/Install_TomoTrack.command dist/
+          cp scripts/Uninstall_TomoTrack.command dist/
+          chmod +x dist/*.command
+          cd dist
+          ditto -c -k --sequesterRsrc --keepParent TomoTrack_Native_Check.plugin Native_Check_Plugin_Only.zip
+          zip -q -r TomoTrack_Native_Check_Mac_Intel.zip TomoTrack_Native_Check.plugin Install_TomoTrack.command Uninstall_TomoTrack.command
+
+      - name: Upload verified bundle as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TomoTrack_Native_Check_Mac_Intel
+          path: dist/TomoTrack_Native_Check_Mac_Intel.zip
+          if-no-files-found: error
+          retention-days: 30
