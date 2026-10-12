@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<ExtensionManifest xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ExtensionBundleId="com.tomo.trackai32" ExtensionBundleVersion="0.3.2" Version="7.0">
-  <ExtensionList><Extension Id="com.tomo.trackai32.panel" Version="0.3.2"/></ExtensionList>
+<ExtensionManifest xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ExtensionBundleId="com.tomo.trackai50" ExtensionBundleVersion="0.5.0" Version="7.0">
+  <ExtensionList><Extension Id="com.tomo.trackai50.panel" Version="0.5.0"/></ExtensionList>
   <ExecutionEnvironment>
     <HostList><Host Name="AEFT" Version="[24.0,24.9]"/></HostList>
     <LocaleList><Locale Code="All"/></LocaleList>
     <RequiredRuntimeList><RequiredRuntime Name="CSXS" Version="11.0"/></RequiredRuntimeList>
   </ExecutionEnvironment>
-  <DispatchInfoList><Extension Id="com.tomo.trackai32.panel"><DispatchInfo>
+  <DispatchInfoList><Extension Id="com.tomo.trackai50.panel"><DispatchInfo>
     <Resources><MainPath>./index.html</MainPath><ScriptPath>./jsx/host.jsx</ScriptPath>
       <CEFCommandLine><Parameter>--enable-nodejs</Parameter><Parameter>--mixed-context</Parameter></CEFCommandLine>
     </Resources>
