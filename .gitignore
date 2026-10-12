@@ -1,0 +1,6 @@
+/target/
+/dist/
+*.rsrc
+*_Info.plist
+*_PkgInfo
+.DS_Store
