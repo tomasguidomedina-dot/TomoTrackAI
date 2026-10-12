@@ -45,6 +45,7 @@ class Engine:
         self.tracker = None
         self.samples = []
         self.metadata = None
+        self.anchors = []
         self.index = 0
         self.end_index = 0
         self.bad = 0
@@ -87,6 +88,7 @@ class Engine:
         self.close()
         self.samples = []
         self.metadata = None
+        self.anchors = []
         self.cv2.setNumThreads(2)
         root = Path(os.environ.get("TOMOTRACK_MODELS", str(Path.home() /
                        "Library/Application Support/TomoTrackAI2/models")))
@@ -121,7 +123,11 @@ class Engine:
                          self.width, self.height)
         self.threshold = max(0.0, min(1.0, finite(job.get("confidence_threshold", .24), "umbral")))
         self.create_tracker(frame, roi)
-        self.metadata = {k: job[k] for k in ("video", "comp_name", "layer_name", "layer_start")}
+        self.metadata = {k: job[k] for k in ("video", "comp_name", "layer_name", "layer_start", "run_id", "mask_name")}
+        shape = job.get("mask_shape")
+        if not isinstance(shape, dict) or not shape.get("closed") or len(shape.get("vertices", [])) < 3:
+            raise ValueError("Falta una máscara poligonal cerrada")
+        self.anchors = [dict(frame=self.index, bbox=dict(job["bbox"]), shape=shape)]
         self.bad = 0
         first = self.record(roi, 1.0)
         return dict(first=first, fps=self.fps, width=self.width, height=self.height,
@@ -164,6 +170,11 @@ class Engine:
         self.create_tracker(frame, box)
         self.index = index
         self.samples = [s for s in self.samples if s["frame"] < index]
+        shape = cmd.get("mask_shape")
+        if not isinstance(shape, dict) or len(shape.get("vertices", [])) < 3:
+            raise ValueError("No hay contorno corregido")
+        self.anchors = [a for a in self.anchors if a["frame"] < index]
+        self.anchors.append(dict(frame=index, bbox=dict(cmd["bbox"]), shape=shape))
         self.bad = 0
         return dict(corrected=self.record(box, 1.0), total=len(self.samples))
 
@@ -177,6 +188,9 @@ class Engine:
                     comp_name=self.metadata["comp_name"],
                     layer_name=self.metadata["layer_name"],
                     layer_start=self.metadata["layer_start"],
+                    mask_name=self.metadata["mask_name"],
+                    run_id=self.metadata["run_id"],
+                    anchors=self.anchors,
                     fps=self.fps, width=self.width, height=self.height,
                     source_width=self.source_width, source_height=self.source_height,
                     samples=self.samples)
