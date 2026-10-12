@@ -91,7 +91,7 @@ def stabilize_samples(samples,anchors,width,height,*,mode="smooth",strength=1.,
     if not(2<=radius<=120):raise ValueError("Radio de suavizado fuera de 2..120")
     if len(samples)<5:raise ValueError("Se necesitan al menos 5 fotogramas de tracking.")
     if not anchors or any(not a.get("manual_pin") for a in anchors[1:]):
-        raise ValueError("Se encontró una referencia corregida sin un pin manual válido.")
+        raise ValueError("Se encontraron correcciones de referencia sin un pin manual válido.")
     for idx,s in enumerate(samples):
         if idx and s["frame"]!=samples[idx-1]["frame"]+1:
             raise ValueError("Faltan fotogramas del seguimiento de cámara.")
