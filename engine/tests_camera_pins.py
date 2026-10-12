@@ -58,8 +58,8 @@ class TestCameraPins(unittest.TestCase):
         pinned=M(17,-5,3,1.07)
         revised,stats=pin_samples(source,26,pinned,Q0)
         self.assertEqual(len(revised),26)
-        self.assertEqual(stats["gap"],5)
-        self.assertEqual(stats["blend_start"],11)  # 21-10+1
+        self.assertEqual(stats["gap"],4)
+        self.assertEqual(stats["blend_start"],12)  # k=21, k-10+1
         for frame in range(22,26):
             self.assertTrue(revised[frame]["manual_interpolated"])
             self.assertEqual(revised[frame]["confidence"],0)
@@ -102,10 +102,10 @@ class TestCameraPins(unittest.TestCase):
                 dict(frame=26,manual_pin=True)]
         stab=stabilize_samples(revised,anchors,480,300,auto_crop=False,
                               mode="smooth",radius=10)
-        self.assertEqual(stab["manual_frames"],5)
+        self.assertEqual(stab["manual_frames"],4)
         self.assertEqual(stab["pin_count"],1)
         self.assertEqual(len(stab["samples"]),27)
-        self.assertEqual(sum(bool(x["manual_interpolated"]) for x in stab["samples"]),5)
+        self.assertEqual(sum(bool(x["manual_interpolated"]) for x in stab["samples"]),4)
         self.assertLess(stab["min_confidence"],.35,
                         "No inventar confianza visual en intervalos interpolados")
 
