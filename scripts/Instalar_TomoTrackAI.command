@@ -3,14 +3,14 @@ set -euo pipefail
 trap 'code=$?; if [[ $code -ne 0 ]]; then echo "";echo "Instalación detenida (error $code). Revisá el mensaje anterior.";read -r -p "Enter para cerrar..." _ || true; fi' EXIT
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 HOME3="$HOME/Library/Application Support/TomoTrackAI3"
-EXT="$HOME/Library/Application Support/Adobe/CEP/extensions/com.tomo.trackai3"
+EXT="$HOME/Library/Application Support/Adobe/CEP/extensions/com.tomo.trackai40"
 MODELS="$HOME3/models"
 ENGINE="$HOME3/engine/TomoTrackNano"
 MODELS_URL="https://raw.githubusercontent.com/HonglinChu/SiamTrackers/master/NanoTrack/models/nanotrackv2"
 
 echo ""
 echo "=================================================="
-echo " TOMOTRACKAI v0.3.1 · PLUGIN ÚNICO / MÁSCARAS AE"
+echo " TOMOTRACKAI v0.4 · POSICIÓN + ESCALA + ROTACIÓN / UN PANEL"
 echo "=================================================="
 echo "Sin efecto ROI Select ni otros plugins separados."
 if [[ "$(uname -s)" != "Darwin" || "$(uname -m)" != "x86_64" ]];then
@@ -24,7 +24,13 @@ if [[ ! -f "$ROOT/extension/CSXS/manifest.xml" ]];then
 fi
 
 mkdir -p "$HOME3/engine" "$HOME3/jobs" "$MODELS" "$(dirname "$EXT")"
-if [[ -e "$ENGINE" ]];then rm -rf "$ENGINE";fi
+if [[ -e "$ENGINE" ]];then
+  ENGINE_BACKUP="$HOME3/respaldos/motor-previo-$(date +%Y%m%d-%H%M%S)"
+  mkdir -p "$(dirname "$ENGINE_BACKUP")"
+  ditto "$ENGINE" "$ENGINE_BACKUP"
+  echo "Respaldo del motor anterior: $ENGINE_BACKUP"
+  rm -rf "$ENGINE"
+fi
 ditto "$ROOT/TomoTrackNano" "$ENGINE"
 chmod +x "$ENGINE/TomoTrackNano"
 xattr -dr com.apple.quarantine "$ENGINE" 2>/dev/null || true
@@ -63,8 +69,18 @@ download_model "nanotrack_backbone_sim.onnx" "6e773a364457b78574f9f63a23b0659ee8
 download_model "nanotrack_head_sim.onnx" "39f168489671700cf739e402dfc67d41ce648aef"
 echo "[2/4] Modelos NanoTrack verificados."
 
-# Una única extensión con una única entrada en Ventana.
-if [[ -d "$EXT" ]];then rm -rf "$EXT";fi
+# Reemplazamos solamente paneles TomoTrackAI conocidos, respaldándolos
+# antes de retirarlos. No se toca ninguna extensión de terceros.
+CEP="$HOME/Library/Application Support/Adobe/CEP/extensions"
+PANEL_BACKUP="$HOME3/respaldos/panel-previo-$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$PANEL_BACKUP"
+for old in com.tomo.trackai3 com.tomo.trackai32 com.tomo.trackai40; do
+  if [[ -d "$CEP/$old" ]];then
+     ditto "$CEP/$old" "$PANEL_BACKUP/$old"
+     rm -rf "$CEP/$old"
+     echo "Panel anterior archivado: $old"
+  fi
+done
 ditto "$ROOT/extension" "$EXT"
 defaults write com.adobe.CSXS.11 PlayerDebugMode 1
 defaults write com.adobe.CSXS.12 PlayerDebugMode 1
