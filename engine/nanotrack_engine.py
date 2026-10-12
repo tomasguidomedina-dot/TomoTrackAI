@@ -91,7 +91,7 @@ class Engine:
         self.anchors = []
         self.cv2.setNumThreads(2)
         root = Path(os.environ.get("TOMOTRACK_MODELS", str(Path.home() /
-                       "Library/Application Support/TomoTrackAI2/models")))
+                       "Library/Application Support/TomoTrackAI3/models")))
         self.model_paths = [str(root / x) for x in
                             ("nanotrack_backbone_sim.onnx", "nanotrack_head_sim.onnx")]
         if any(not Path(p).is_file() or Path(p).stat().st_size < 100000 for p in self.model_paths):
