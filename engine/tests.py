@@ -49,6 +49,10 @@ def smoke_real():
             data = engine.init(dict(
                 video=video, comp_name="CI", layer_name="video",
                 layer_start=0.0, source_width=320, source_height=240,
+                mask_name="TomoTrackAI - OBJETIVO",
+                run_id="ci-test-mask-0001",
+                mask_shape={"vertices": [[80,75],[136,75],[136,131],[80,131]],
+                            "inTangents": [[0,0]]*4,"outTangents": [[0,0]]*4,"closed": True},
                 start_seconds=0.0, end_seconds=0.7,
                 bbox={"x":80, "y":75, "w":56, "h":56},
                 confidence_threshold=0.0))
@@ -63,6 +67,18 @@ def smoke_real():
                 serialized = json.loads((Path(td) / "motion.json").read_text())
                 assert len(serialized["samples"]) >= 2
                 assert serialized["engine"] == "OpenCV NanoTrack V2"
+                assert serialized["run_id"] == "ci-test-mask-0001"
+                assert len(serialized["anchors"]) == 1
+                assert len(serialized["anchors"][0]["shape"]["vertices"]) == 4
+            # Comprobar que reseed mantiene máscara corregida y corta trayectoria futura
+            correction = {"vertices": [[92,81],[146,81],[146,138],[92,138]],
+                          "inTangents": [[0,0]]*4, "outTangents": [[0,0]]*4,"closed": True}
+            restored = engine.reseed({"source_seconds": 2/12,
+                                     "bbox": {"x":92,"y":81,"w":54,"h":57},
+                                     "mask_shape": correction})
+            assert restored["corrected"]["frame"] == 2, restored
+            assert len(engine.anchors) == 2, engine.anchors
+            assert engine.samples[-1]["frame"] == 2
             print("SMOKE NanoTrack real: OK, muestras", result["total"])
         finally:
             engine.close()
