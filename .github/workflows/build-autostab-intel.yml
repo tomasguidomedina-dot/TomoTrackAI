@@ -1,0 +1,59 @@
+name: TomoTrackAI AutoStab v0.7 - Intel macOS
+on:
+  push:
+    branches: [autostab-v0.7]
+    paths:
+      - 'autostab-build/payload.b64'
+      - '.github/workflows/build-autostab-intel.yml'
+  workflow_dispatch:
+jobs:
+  build-intel:
+    runs-on: macos-15-intel
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          architecture: 'x64'
+      - name: Unpack audited source payload
+        run: |
+          python - <<'PY'
+          import base64, pathlib
+          src=pathlib.Path('autostab-build/payload.b64').read_text()
+          pathlib.Path('/tmp/tomo-autostab-v07.tar.gz').write_bytes(base64.b64decode(src, validate=False))
+          PY
+          tar -xzf /tmp/tomo-autostab-v07.tar.gz
+          test -f autostab/tomo_autostab.py
+          test -f extension/jsx/host.jsx
+          test -f Instalar_TomoTrackAI_AutoStab.command
+      - name: Install pinned local vision dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy==1.26.4 opencv-python-headless==4.10.0.84 pyinstaller==6.11.1
+      - name: Run synthetic stabilization tests
+        run: python -m unittest discover -s autostab/tests -v
+      - name: Build portable Intel engine for Monterey
+        env:
+          MACOSX_DEPLOYMENT_TARGET: '12.0'
+        run: |
+          python -m PyInstaller --noconfirm --clean --onedir --name TomoAutoStab autostab/tomo_autostab.py
+          file dist/TomoAutoStab/TomoAutoStab
+          lipo -info dist/TomoAutoStab/TomoAutoStab | grep x86_64
+          dist/TomoAutoStab/TomoAutoStab --selftest
+          codesign --force --deep --sign - dist/TomoAutoStab/TomoAutoStab
+          dist/TomoAutoStab/TomoAutoStab --selftest
+      - name: Package upgrade installer (tracking unchanged)
+        run: |
+          mkdir -p release/TomoTrackAI_AutoStab_v0.7_Intel
+          cp -R dist/TomoAutoStab release/TomoTrackAI_AutoStab_v0.7_Intel/TomoAutoStab
+          cp -R extension release/TomoTrackAI_AutoStab_v0.7_Intel/
+          cp Instalar_TomoTrackAI_AutoStab.command Restaurar_TomoTrackAI_v063.command LEEME_AUTO_STAB.md release/TomoTrackAI_AutoStab_v0.7_Intel/
+          chmod +x release/TomoTrackAI_AutoStab_v0.7_Intel/*.command
+          ditto -c -k --sequesterRsrc --keepParent release/TomoTrackAI_AutoStab_v0.7_Intel release/TomoTrackAI_AutoStab_v0.7_Intel.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TomoTrackAI_AutoStab_v0.7_Intel
+          path: release/TomoTrackAI_AutoStab_v0.7_Intel.zip
+          if-no-files-found: error
+          retention-days: 30
